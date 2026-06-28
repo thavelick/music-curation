@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# uv
+.uv/
+
+# Editor / OS
+*.swp
+.DS_Store
+
+# Scratch logs / ad-hoc output
+*.log
+.Trash
