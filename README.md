@@ -95,8 +95,10 @@ whipper drives the same `cdparanoia` underneath (so it's no better at clawing da
 **Setup:** whipper has fiddly native deps, so it runs from its **official container** via **rootful** podman — rootless podman can't reach the optical drive through the user-namespace mapping. This relies on passwordless `sudo podman` (a rule in `/etc/sudoers.d/podman-nopasswd`). The wrapper script [`rip/rip-cd.sh`](rip/rip-cd.sh) reads the drive's read offset from `$RIP_OFFSET` — find yours once with `whipper offset find` against a disc that's in AccurateRip. Deploy the wrapper to the rip host, e.g.:
 
 ```bash
-scp rip/rip-cd.sh "$RIP_HOST":~/whipper/rip-cd.sh
+scp rip/rip-cd.sh rip/rescue-skipped.py "$RIP_HOST":~/whipper/
 ```
+
+(Deploy both files together — `rip-cd.sh` runs `rescue-skipped.py` from the same directory; see [Recovering skipped tracks](#recovering-skipped-tracks) below.)
 
 **To rip a disc** (insert it first; `-t` gives an interactive terminal for the release prompt):
 
@@ -116,7 +118,21 @@ sudo podman run --rm -it --device /dev/sr0 --user 0 \
 - **`-o "$RIP_OFFSET"`** read offset · **`-p`** prompt to pick the MusicBrainz release · **`-C complete`** cover art · **`-k`** keep going if a track fails
 - Output lands in `~/whipper/out/<Artist>/<Album>/` on the rip host (**root-owned** — `sudo`/rsync to move it), with a per-track AccurateRip verdict in the log. Pull it down and curate like any other rip.
 
+After whipper finishes, the wrapper runs a **rescue pass** (below) to fill in any tracks whipper skipped, so the output dir is always complete.
+
 **Tradeoffs:** whipper is noticeably **slower** than abcde (a one-time subchannel scan + careful per-track extraction) and interactive. Use it when verification matters; use abcde for everyday speed.
+
+#### Recovering skipped tracks
+
+whipper only writes a track once it has a clean, consistent read — if it can't get one (a scratch or grime it can't read through), it **skips** the track entirely: no file, just a hole in the album and a warning in the log. That's the right call for a bit-perfect archive, but for a used CD you usually still want *something* listenable rather than a silent gap.
+
+So `rip-cd.sh` runs [`rip/rescue-skipped.py`](rip/rescue-skipped.py) inside the same container right after whipper (the disc is still in the drive). For each track the cue references but has no file, it:
+
+- re-extracts that one track with **`cd-paranoia`** in its error-concealing "paranoid" mode — unlike whipper, this always produces audio, even when it can't be verified;
+- encodes it to FLAC and tags it to **match its sibling tracks** (album-level tags copied from a sibling; track number/title from the filename; per-track MusicBrainz IDs looked up best-effort);
+- writes it into the album dir under the exact filename the cue expects.
+
+Rescued tracks are **best-effort and NOT AccurateRip-verified.** The script says so on the console, drops a `RESCUED-TRACKS.txt` breadcrumb in the album dir, and — because used discs often aren't in AccurateRip/CTDB at all, so [`verify_rips.py`](#verifying-rips-accuraterip) can't help — prints the timestamp region where the drive's read-correction was heaviest, so you know **where to listen**. Treat a rescued track like a `DIFFERS`: [listen at the flagged spot](#what-to-actually-worry-about); if it's audibly bad, clean the disc and re-rip, or replace it. If whipper skipped nothing, the pass is silent.
 
 **Gotchas:**
 - The read offset is specific to **your drive**. Find it once with `whipper offset find` (against a disc that's in AccurateRip) and set `RIP_OFFSET`.
@@ -680,7 +696,8 @@ live in `rip/`.
 
 ### CD Ripping (`rip/`)
 - `abcde.conf` — `abcde` config producing the curated layout (deploy to `~/.abcde.conf` on the rip host)
-- `rip-cd.sh` — whipper wrapper for AccurateRip-verified rips (uses `$RIP_OFFSET`)
+- `rip-cd.sh` — whipper wrapper for AccurateRip-verified rips (uses `$RIP_OFFSET`); also runs the skipped-track rescue
+- `rescue-skipped.py` — recover tracks whipper skipped (best-effort `cd-paranoia`), flag them, and point you where to listen; run automatically by `rip-cd.sh`
 
 ## Quick Reference: Processing a New Album
 
