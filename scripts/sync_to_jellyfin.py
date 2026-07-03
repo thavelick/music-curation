@@ -137,12 +137,19 @@ def main():
     #
     # --no-o/--no-g: don't preserve source owner/group; ownership is set explicitly by
     # the chown step below, so there's nothing to gain from carrying the local uid over.
+    #
+    # --partial/--timeout: without a timeout, a hung SSH connection makes rsync block
+    # forever mid-file instead of failing. --timeout=60 aborts an idle transfer so it
+    # can be retried, and --partial keeps the partially-sent file so the retry resumes
+    # from where it stopped rather than re-sending it from scratch.
     rsync_cmd = [
         "rsync",
         "-avz",
         "--rsync-path=sudo rsync",
         "--no-o",
         "--no-g",
+        "--partial",
+        "--timeout=60",
         "--progress",
     ]
 
