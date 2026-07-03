@@ -327,10 +327,11 @@ When adding a new album to the curated library:
 3. **Apply metadata tags** - see [Tagging Files](#tagging-files)
 4. **Add ReplayGain tags** (if missing) - see [ReplayGain](#replaygain-volume-normalization)
 5. **Fetch artwork** - see [Getting Artwork](#getting-artwork)
-6. **Verify quality** - check files play correctly with proper durations
-7. **Verify rip accuracy** (CD rips) - run `scripts/verify_rips.py` on the album and triage per [What to actually worry about](#what-to-actually-worry-about)
-8. **Remove `.m3u` and `.cue` sidecars** - delete any `.m3u` playlist and `.cue` sheet from the album dir; they reference the pre-curation filenames and go stale once tracks are renamed. Keep the `.log`/`.toc` as rip provenance.
-9. **Move to final location** - place in `curated/` or `classical/`
+6. **Fetch lyrics** - run `scripts/fetch_lyrics.py` on the album to pull synced `.lrc` sidecars - see [Getting Lyrics](#getting-lyrics)
+7. **Verify quality** - check files play correctly with proper durations
+8. **Verify rip accuracy** (CD rips) - run `scripts/verify_rips.py` on the album and triage per [What to actually worry about](#what-to-actually-worry-about)
+9. **Remove `.m3u` and `.cue` sidecars** - delete any `.m3u` playlist and `.cue` sheet from the album dir; they reference the pre-curation filenames and go stale once tracks are renamed. Keep the `.log`/`.toc` as rip provenance.
+10. **Move to final location** - place in `curated/` or `classical/`
 
 ### Splitting FLAC+CUE Files
 
@@ -524,6 +525,33 @@ scripts/review_artist_images.sh ~/Music/curated  # Page through artist images wi
 uv run scripts/check_missing_images.py --directory ~/Music/curated  # Missing-image report
 ```
 
+### Getting Lyrics
+
+Fetch time-synced lyrics as `.lrc` sidecar files so Jellyfin shows scrolling,
+karaoke-style lyrics during playback. Jellyfin attaches a lyric file to a track
+when their basenames match (`01 Song.flac` ↔ `01 Song.lrc`), and picks them up
+on a library scan — so fetch lyrics **before** [syncing to Jellyfin](#syncing-to-jellyfin-server).
+
+Use the lyrics fetching script, which reads each track's `ARTIST`/`TITLE`/`ALBUM`
+tags and duration, looks the song up on [LRCLIB](https://lrclib.net) (free, no API
+key), and writes a matching `.lrc` next to each track:
+
+```bash
+uv run scripts/fetch_lyrics.py ~/Music/curated/"Artist Name"/"Album Title"   # one album
+uv run scripts/fetch_lyrics.py ~/Music/curated/"Artist Name"                 # one artist
+uv run scripts/fetch_lyrics.py                                               # whole curated library
+```
+
+- Writes **synced** lyrics as `.lrc`. Tracks that already have a sidecar are
+  skipped (pass `--overwrite` to replace them).
+- LRCLIB matches on artist/title/album **and duration**, so accurate tags and
+  correct durations give the best hit rate. This is another reason to
+  [split by re-encoding](#splitting-flaccue-files) rather than stream-copying —
+  wrong durations cause lyric misses just like they break rip verification.
+- For tracks LRCLIB only has **unsynced** lyrics for, nothing is written by
+  default; pass `--plain` to save those as `.txt` (Jellyfin still displays them,
+  just without timing).
+
 ## Common Tasks
 
 ### Replacing Albums with Better Versions
@@ -688,6 +716,9 @@ live in `rip/`.
 - `review_artist_images.sh` — Page through artist images with `imv`
 - `check_missing_images.py` — Report albums/artists missing artwork
 
+### Lyrics
+- `fetch_lyrics.py` — Download synced `.lrc` lyrics from LRCLIB (see [Getting Lyrics](#getting-lyrics))
+
 ### Quality Checks
 - `get_runtime.py` — Calculate total runtime of audio files in a directory
 - `verify_rips.py` — Verify rips against AccurateRip/CTDB (see [Verifying Rips](#verifying-rips-accuraterip))
@@ -723,11 +754,14 @@ uv run scripts/fetch_artist_image.py --artist-dir ~/Music/curated/"Artist Name"
 # 5. Manually add artist image if needed
 cp ~/Downloads/artist-image.jpg ~/Music/curated/"Artist Name"/folder.jpg
 
-# 6. Verify everything
+# 6. Fetch synced lyrics (.lrc sidecars)
+uv run scripts/fetch_lyrics.py ~/Music/curated/"Artist Name"/"Album Title"
+
+# 7. Verify everything
 ls -R ~/Music/curated/"Artist Name"
 metaflac --list "01 - Track Name.flac" | grep comment
 
-# 7. Sync to Jellyfin server (always use --scan to refresh the library)
+# 8. Sync to Jellyfin server (always use --scan to refresh the library)
 uv run scripts/sync_to_jellyfin.py --scan
 ```
 

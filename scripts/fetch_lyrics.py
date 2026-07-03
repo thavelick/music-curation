@@ -163,9 +163,10 @@ def main():
     ap.add_argument("--overwrite", action="store_true", help="replace existing .lrc/.txt sidecars")
     args = ap.parse_args()
 
-    # Line-buffer stdout so progress is visible when output is piped/redirected
+    # flush each line so progress is visible when output is piped/redirected
     # (e.g. run in the background) rather than withheld until the script exits.
-    sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
+    def progress(msg):
+        print(msg, flush=True)
 
     files = find_audio_files(args.paths or [args.root])
     if not files:
@@ -175,20 +176,20 @@ def main():
     session.headers["User-Agent"] = USER_AGENT
 
     counts = {"synced": 0, "plain": 0, "skipped": 0, "missing": 0, "error": 0}
-    print(f"Fetching lyrics for {len(files)} track(s)...\n")
+    progress(f"Fetching lyrics for {len(files)} track(s)...\n")
     for path in files:
         label = path.name
         lrc = path.with_suffix(".lrc")
         txt = path.with_suffix(".txt")
         if not args.overwrite and (lrc.exists() or txt.exists()):
             counts["skipped"] += 1
-            print(f"  [skip   ] {label} (sidecar exists)")
+            progress(f"  [skip   ] {label} (sidecar exists)")
             continue
 
         meta = track_metadata(path)
         if meta is None:
             counts["error"] += 1
-            print(f"  [error  ] {label} (missing artist/title tags)")
+            progress(f"  [error  ] {label} (missing artist/title tags)")
             continue
         artist, title, album, duration = meta
 
@@ -196,7 +197,7 @@ def main():
             match = lrclib_lookup(session, artist, title, album, duration)
         except requests.RequestException as e:
             counts["error"] += 1
-            print(f"  [error  ] {label} ({e})")
+            progress(f"  [error  ] {label} ({e})")
             continue
         finally:
             time.sleep(RATE_LIMIT_DELAY)
@@ -206,15 +207,15 @@ def main():
         if synced:
             written = write_sidecar(path, synced, ".lrc")
             counts["synced"] += 1
-            print(f"  [synced ] {label} -> {written.name}")
+            progress(f"  [synced ] {label} -> {written.name}")
         elif plain and args.plain:
             written = write_sidecar(path, plain, ".txt")
             counts["plain"] += 1
-            print(f"  [plain  ] {label} -> {written.name}")
+            progress(f"  [plain  ] {label} -> {written.name}")
         else:
             counts["missing"] += 1
             note = "only plain available, use --plain" if plain else "no lyrics found"
-            print(f"  [miss   ] {label} ({note})")
+            progress(f"  [miss   ] {label} ({note})")
 
     print("\n=== Summary ===")
     for k in ("synced", "plain", "skipped", "missing", "error"):
