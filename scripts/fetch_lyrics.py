@@ -57,6 +57,7 @@ LRCLIB_SEARCH = "https://lrclib.net/api/search"
 # LRCLIB asks clients to identify themselves with a User-Agent linking to the app.
 USER_AGENT = "music-curation-fetch-lyrics/1.0 (https://github.com/thavelick/music-curation)"
 RATE_LIMIT_DELAY = 0.5  # seconds between API calls, to be polite to LRCLIB
+SYNCED_DURATION_TOLERANCE = 3  # seconds; prefer a synced match within this of our track
 
 
 def first_tag(audio, *names):
@@ -85,10 +86,12 @@ def track_metadata(path):
 def lrclib_lookup(session, artist, title, album, duration):
     """Look up lyrics on LRCLIB. Returns the best match dict, or None.
 
-    Tries the exact /get endpoint first (artist+title+album+duration), then
-    falls back to /search (which ignores duration) and picks the closest
-    duration match, so a track that isn't an exact metadata match still has a
-    chance.
+    The exact /get endpoint allows a small duration tolerance, so it can return
+    a *plain-only* record even when a synced version of the same song exists at
+    a slightly different duration. So: take the /get hit, but if it lacks synced
+    lyrics, also run the broader /search and prefer a synced candidate whose
+    duration is close to ours. That stops a nearer-but-plain entry from leaving
+    the track unsynced when a synced version is only a second or two off.
     """
     params = {"artist_name": artist, "track_name": title}
     if album:
@@ -96,15 +99,31 @@ def lrclib_lookup(session, artist, title, album, duration):
     if duration is not None:
         params["duration"] = duration
     r = session.get(LRCLIB_GET, params=params, timeout=20)
+    exact = None
     if r.status_code == 200:
-        return r.json()
-    if r.status_code != 404:
+        exact = r.json()
+        if exact.get("syncedLyrics"):
+            return exact
+    elif r.status_code != 404:
         r.raise_for_status()
 
-    # Fallback: broader search, then pick the nearest-duration candidate.
+    # Either /get missed, or it returned plain-only -- search for a synced match.
     r = session.get(LRCLIB_SEARCH, params={"artist_name": artist, "track_name": title}, timeout=20)
     r.raise_for_status()
     results = r.json()
+
+    if duration is not None:
+        def dur_diff(c):
+            return abs((c.get("duration") or 0) - duration)
+
+        synced_near = [c for c in results if c.get("syncedLyrics") and dur_diff(c) <= SYNCED_DURATION_TOLERANCE]
+        if synced_near:
+            return min(synced_near, key=dur_diff)
+
+    # No synced match found; keep the exact plain hit if we had one, else the
+    # closest search result (by duration when known), else nothing.
+    if exact is not None:
+        return exact
     if not results:
         return None
     if duration is None:
@@ -146,7 +165,7 @@ def main():
 
     # Line-buffer stdout so progress is visible when output is piped/redirected
     # (e.g. run in the background) rather than withheld until the script exits.
-    sys.stdout.reconfigure(line_buffering=True)
+    sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
 
     files = find_audio_files(args.paths or [args.root])
     if not files:
