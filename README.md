@@ -329,7 +329,8 @@ When adding a new album to the curated library:
 5. **Fetch artwork** - see [Getting Artwork](#getting-artwork)
 6. **Verify quality** - check files play correctly with proper durations
 7. **Verify rip accuracy** (CD rips) - run `scripts/verify_rips.py` on the album and triage per [What to actually worry about](#what-to-actually-worry-about)
-8. **Move to final location** - place in `curated/` or `classical/`
+8. **Remove `.m3u` and `.cue` sidecars** - delete any `.m3u` playlist and `.cue` sheet from the album dir; they reference the pre-curation filenames and go stale once tracks are renamed. Keep the `.log`/`.toc` as rip provenance.
+9. **Move to final location** - place in `curated/` or `classical/`
 
 ### Splitting FLAC+CUE Files
 
