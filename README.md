@@ -499,7 +499,7 @@ This will:
 Use the artist image fetching script:
 
 ```bash
-uv run scripts/fetch_artist_images.py --directory ~/Music/curated/Artist\ Name
+uv run scripts/fetch_artist_image.py --artist-dir ~/Music/curated/Artist\ Name
 ```
 
 This will:
@@ -682,7 +682,7 @@ live in `rip/`.
 
 ### Artwork
 - `fetch_album_art.py` — Download album covers from Cover Art Archive / TheAudioDB
-- `fetch_artist_images.py` — Download artist images from TheAudioDB
+- `fetch_artist_image.py` — Download artist images from TheAudioDB
 - `review_covers.sh` — Page through album covers with `imv`
 - `review_artist_images.sh` — Page through artist images with `imv`
 - `check_missing_images.py` — Report albums/artists missing artwork
@@ -717,7 +717,7 @@ cd ~/Music/curated/"Artist Name"/"Album Title"
 
 # 4. Fetch artwork
 uv run scripts/fetch_album_art.py --directory ~/Music/curated/"Artist Name"
-uv run scripts/fetch_artist_images.py --directory ~/Music/curated/"Artist Name"
+uv run scripts/fetch_artist_image.py --artist-dir ~/Music/curated/"Artist Name"
 
 # 5. Manually add artist image if needed
 cp ~/Downloads/artist-image.jpg ~/Music/curated/"Artist Name"/folder.jpg

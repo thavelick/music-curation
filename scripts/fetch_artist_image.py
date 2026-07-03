@@ -238,24 +238,21 @@ def process_artist(artist_path: Path, dry_run: bool = False, audiodb_api_key: st
     download_artist_image(mbid, output_path, dry_run, audiodb_api_key)
 
 
-def process_directory(base_dir: Path, dry_run: bool = False, audiodb_api_key: str = AUDIODB_API_KEY) -> None:
-    """Process all artists in a music directory."""
-    if not base_dir.exists():
-        print(f"Error: Directory {base_dir} does not exist", file=sys.stderr)
+def process_artist_dir(artist_dir: Path, dry_run: bool = False, audiodb_api_key: str = AUDIODB_API_KEY) -> None:
+    """Fetch the artist image for a single artist folder (writes folder.jpg into it)."""
+    if not artist_dir.exists():
+        print(f"Error: Directory {artist_dir} does not exist", file=sys.stderr)
         return
 
     print(f"{'=' * 60}")
-    print(f"Processing: {base_dir}")
+    print(f"Processing: {artist_dir}")
     print(f"Mode: {'DRY RUN' if dry_run else 'LIVE'}")
     print(f"{'=' * 60}")
 
-    artist_folders = sorted([d for d in base_dir.iterdir() if d.is_dir()])
-
-    for artist_path in artist_folders:
-        process_artist(artist_path, dry_run, audiodb_api_key)
+    process_artist(artist_dir, dry_run, audiodb_api_key)
 
     print(f"\n{'=' * 60}")
-    print(f"Finished processing {base_dir.name}")
+    print(f"Finished processing {artist_dir.name}")
     print(f"{'=' * 60}")
 
 
@@ -265,9 +262,9 @@ def main():
         description="Fetch artist images from TheAudioDB"
     )
     parser.add_argument(
-        "--directory",
+        "--artist-dir",
         required=True,
-        help="Path to the music directory to process"
+        help="Path to a single artist folder; folder.jpg is written into it"
     )
     parser.add_argument(
         "--dry-run",
@@ -285,9 +282,9 @@ def main():
     # Setup
     setup_musicbrainz()
 
-    # Process directory
-    base_dir = Path(args.directory).expanduser()
-    process_directory(base_dir, dry_run=args.dry_run, audiodb_api_key=args.audiodb_api_key)
+    # Process the artist folder
+    artist_dir = Path(args.artist_dir).expanduser()
+    process_artist_dir(artist_dir, dry_run=args.dry_run, audiodb_api_key=args.audiodb_api_key)
 
     return 0
 
