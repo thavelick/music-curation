@@ -69,9 +69,14 @@ def split_track(flac_path, output_path, start_time, duration=None):
     if duration:
         cmd.extend(['-t', str(duration)])
 
+    # Re-encode (not -c copy): stream-copying leaves each track's STREAMINFO
+    # total_samples pointing at the whole-album length, which yields wrong
+    # durations and breaks AccurateRip verification (ARCUE reads the header,
+    # expects the full album, and hits EOF). Re-encoding writes correct headers.
     cmd.extend([
         '-i', str(flac_path),
-        '-c', 'copy',
+        '-c:a', 'flac',
+        '-compression_level', '8',
         '-y', str(output_path)
     ])
 

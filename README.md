@@ -733,20 +733,6 @@ uv run scripts/sync_to_jellyfin.py --scan
 
 ## Troubleshooting
 
-### Wrong Track Durations After Splitting
-
-If tracks show incorrect durations (like the full album length):
-
-This happens when using `ffmpeg -c copy` which doesn't update FLAC metadata. Re-encode to fix:
-
-```bash
-# Re-encode each track to fix metadata
-for f in *.flac; do
-    ffmpeg -i "$f" -c:a flac -compression_level 8 "fixed_$f"
-    mv "fixed_$f" "$f"
-done
-```
-
 ### Missing MusicBrainz IDs
 
 If artwork scripts can't find albums/artists, you may need to manually look up IDs on https://musicbrainz.org and add them to tags:
