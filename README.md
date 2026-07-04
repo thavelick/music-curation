@@ -474,8 +474,10 @@ metaflac --export-tags-to=- "01 Track Name.flac" | grep -i replaygain || echo "n
 ```
 
 There are two tools, depending on the file. Use `metaflac` for ordinary stereo
-FLAC; use `rsgain` for everything `metaflac` can't do (MP3, 5.1/surround, and the
-occasional FLAC whose decoder `metaflac` chokes on).
+FLAC; use `rsgain` for everything `metaflac` can't do (MP3, M4A/AAC, 5.1/surround,
+and the occasional FLAC whose decoder `metaflac` chokes on). Note the library is
+mixed-format — FLAC, MP3, and M4A — so when checking coverage, enumerate all
+three extensions; a FLAC-only scan silently skips whole albums.
 
 #### Stereo FLAC — `metaflac`
 
@@ -494,23 +496,24 @@ files (`# of channels (6) is not supported`). It also occasionally fails a
 single track with `ERROR: during analysis (decoding file)`. In both cases, fall
 back to `rsgain` below.
 
-#### MP3, 5.1 surround, and problem FLAC — `rsgain`
+#### MP3, M4A, 5.1 surround, and problem FLAC — `rsgain`
 
 [`rsgain`](https://github.com/complexlogic/rsgain) (`brew install rsgain`) uses
-libebur128 (ITU-R BS.1770 loudness), so it handles **MP3**, **multichannel
-(5.1/7.1)** — excluding the LFE channel per spec — and FLACs that `metaflac`
-can't decode. Album mode, writing ReplayGain 2.0 tags in place:
+libebur128 (ITU-R BS.1770 loudness), so it handles **MP3**, **M4A/AAC**,
+**multichannel (5.1/7.1)** — excluding the LFE channel per spec — and FLACs that
+`metaflac` can't decode. Album mode, writing ReplayGain 2.0 tags in place:
 
 ```bash
-rsgain custom -a -s i *.flac        # or *.mp3
+rsgain custom -a -s i *.flac        # or *.mp3, *.m4a
 ```
 
 `-a` = compute album gain, `-s i` = scan and write tags. Add `-s s` to scan and
-print values **without** writing (a dry run). MP3 tags are written as ID3v2
-`TXXX:REPLAYGAIN_*` frames; FLAC tags are the same `REPLAYGAIN_*` Vorbis comments
-`metaflac` writes, so players read either identically. (Note: `rsgain` references
-−18 LUFS while `metaflac` references 89 dB SPL / ReplayGain 1 — the resulting
-gain values differ slightly, which is cosmetic and doesn't affect leveling.)
+print values **without** writing (a dry run). MP3/M4A tags are written as ID3v2
+`TXXX:REPLAYGAIN_*` frames / MP4 atoms; FLAC tags are the same `REPLAYGAIN_*`
+Vorbis comments `metaflac` writes, so players read either identically. (Note:
+`rsgain` references −18 LUFS while `metaflac` references 89 dB SPL / ReplayGain 1
+— the resulting gain values differ slightly, which is cosmetic and doesn't affect
+leveling.)
 
 #### Various-artists compilations
 
