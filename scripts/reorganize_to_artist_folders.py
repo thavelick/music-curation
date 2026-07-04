@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
 """
 Reorganize music library from flat [Artist] - [Album] structure
 into Artist/Album/ hierarchy for Jellyfin compatibility.

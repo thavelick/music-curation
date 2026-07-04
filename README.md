@@ -22,13 +22,13 @@ The music files themselves live outside this repo (by default in `~/Music`); thi
 
 ### Running the scripts
 
-The Python scripts under `scripts/` declare their dependencies inline ([PEP 723](https://peps.python.org/pep-0723/)), so the simplest way to run them is with [`uv`](https://docs.astral.sh/uv/):
+The Python scripts under `scripts/` declare their dependencies inline ([PEP 723](https://peps.python.org/pep-0723/)) and have a `uv` shebang, so once [`uv`](https://docs.astral.sh/uv/) is installed you can run them directly:
 
 ```bash
-uv run scripts/verify_rips.py
+scripts/verify_rips.py
 ```
 
-`uv run` creates a throwaway environment with the right dependencies automatically. If you'd rather manage dependencies yourself, the requirements are `mutagen`, `musicbrainzngs`, and `requests`. Several scripts also shell out to external tools (`ffmpeg`/`ffprobe`, `metaflac`, `rsgain`, `mono`, `rsync`, `imv`) — see each section for specifics.
+The shebang runs each script through `uv`, which creates a throwaway environment with the right dependencies automatically. If you'd rather manage dependencies yourself, the requirements are `mutagen`, `musicbrainzngs`, and `requests`. Several scripts also shell out to external tools (`ffmpeg`/`ffprobe`, `metaflac`, `rsgain`, `mono`, `rsync`, `imv`) — see each section for specifics.
 
 ## Configuration
 
@@ -196,16 +196,16 @@ The helper script `scripts/verify_rips.py` handles everything — it finds each 
 
 ```bash
 # Verify the whole curated library
-uv run scripts/verify_rips.py
+scripts/verify_rips.py
 
 # Verify one artist or album
-uv run scripts/verify_rips.py ~/Music/curated/"Pink Floyd"
+scripts/verify_rips.py ~/Music/curated/"Pink Floyd"
 
 # Verify a different library root
-uv run scripts/verify_rips.py --root ~/Music/classical
+scripts/verify_rips.py --root ~/Music/classical
 
 # Show the full ARCUE output per album
-uv run scripts/verify_rips.py --verbose
+scripts/verify_rips.py --verbose
 ```
 
 Multi-disc albums are handled automatically (each `Disc N/` folder is verified as its own CD). Non-FLAC albums (`mp3/`, `m4a/`, etc.) are skipped — AccurateRip only works on lossless CD rips.
@@ -342,7 +342,7 @@ When you have a single FLAC file with a CUE sheet (common for album rips):
 Use the splitting script:
 
 ```bash
-uv run scripts/split_flac.py /path/to/album/directory
+scripts/split_flac.py /path/to/album/directory
 ```
 
 This will:
@@ -354,7 +354,7 @@ This will:
 If there are multiple FLAC or CUE files in the directory, specify them explicitly:
 
 ```bash
-uv run scripts/split_flac.py /path/to/album --flac album.flac --cue album.cue
+scripts/split_flac.py /path/to/album --flac album.flac --cue album.cue
 ```
 
 **Important:** The script uses `-c:a flac` (re-encoding) which ensures files have correct durations and checksums. Using `-c copy` is faster but creates incorrect metadata that needs fixing later.
@@ -448,17 +448,17 @@ library root, an artist folder, or a single album — and operates on every trac
 
 **Report `ALBUMARTIST` tags that don't match the artist folder name:**
 ```bash
-uv run scripts/check_tags.py ~/Music/curated
+scripts/check_tags.py ~/Music/curated
 ```
 
 **Fix album artist tags** (sets `ALBUMARTIST` to the artist folder name; `--dry-run` to preview):
 ```bash
-uv run scripts/fix_album_artist.py ~/Music/curated --dry-run
+scripts/fix_album_artist.py ~/Music/curated --dry-run
 ```
 
 **Find multi-artist tracks not using the `; ` delimiter:**
 ```bash
-uv run scripts/check_multi_artist.py ~/Music/curated
+scripts/check_multi_artist.py ~/Music/curated
 ```
 
 ### ReplayGain (volume normalization)
@@ -528,7 +528,7 @@ meaningless across a grab-bag of masters.
 Use the album art fetching script:
 
 ```bash
-uv run scripts/fetch_album_art.py --directory ~/Music/curated/Artist\ Name
+scripts/fetch_album_art.py --directory ~/Music/curated/Artist\ Name
 ```
 
 This will:
@@ -541,7 +541,7 @@ This will:
 Use the artist image fetching script:
 
 ```bash
-uv run scripts/fetch_artist_image.py --artist-dir ~/Music/curated/Artist\ Name
+scripts/fetch_artist_image.py --artist-dir ~/Music/curated/Artist\ Name
 ```
 
 This will:
@@ -562,7 +562,7 @@ Use review scripts to check what's missing:
 ```bash
 scripts/review_covers.sh ~/Music/curated         # Page through album covers with imv
 scripts/review_artist_images.sh ~/Music/curated  # Page through artist images with imv
-uv run scripts/check_missing_images.py --directory ~/Music/curated  # Missing-image report
+scripts/check_missing_images.py --directory ~/Music/curated  # Missing-image report
 ```
 
 ### Getting Lyrics
@@ -577,9 +577,9 @@ tags and duration, looks the song up on [LRCLIB](https://lrclib.net) (free, no A
 key), and writes a matching `.lrc` next to each track:
 
 ```bash
-uv run scripts/fetch_lyrics.py ~/Music/curated/"Artist Name"/"Album Title"   # one album
-uv run scripts/fetch_lyrics.py ~/Music/curated/"Artist Name"                 # one artist
-uv run scripts/fetch_lyrics.py                                               # whole curated library
+scripts/fetch_lyrics.py ~/Music/curated/"Artist Name"/"Album Title"   # one album
+scripts/fetch_lyrics.py ~/Music/curated/"Artist Name"                 # one artist
+scripts/fetch_lyrics.py                                               # whole curated library
 ```
 
 - Writes **synced** lyrics as `.lrc`. Tracks that already have a sidecar are
@@ -625,7 +625,7 @@ When music is organized by format (in `flac/`, `m4a/`, etc.):
 
 1. **Use reorganization script** (`--dry-run` to preview):
    ```bash
-   uv run scripts/reorganize_to_artist_folders.py --directory ~/Music/flac --dry-run
+   scripts/reorganize_to_artist_folders.py --directory ~/Music/flac --dry-run
    ```
 
 2. **This will:**
@@ -662,7 +662,7 @@ You can also use the helper script, which reads the disc number from each `Disc 
 subfolder and tags the tracks inside it (works on a single album or a whole root;
 `--dry-run` to preview):
 ```bash
-uv run scripts/add_disc_numbers.py ~/Music/curated/"Pink Floyd"/"The Wall"
+scripts/add_disc_numbers.py ~/Music/curated/"Pink Floyd"/"The Wall"
 ```
 
 ### Checking Album Names
@@ -683,17 +683,17 @@ After processing albums, sync the entire library to the remote Jellyfin server:
 
 ```bash
 # Standard sync — do this every time (dry-run first to preview)
-uv run scripts/sync_to_jellyfin.py --dry-run
-uv run scripts/sync_to_jellyfin.py --scan
+scripts/sync_to_jellyfin.py --dry-run
+scripts/sync_to_jellyfin.py --scan
 
 # Sync classical/ directory instead
-uv run scripts/sync_to_jellyfin.py --classical --scan
+scripts/sync_to_jellyfin.py --classical --scan
 
 # Sync with delete enabled (removes files on remote that don't exist locally)
-uv run scripts/sync_to_jellyfin.py --delete --scan
+scripts/sync_to_jellyfin.py --delete --scan
 
 # Override environment variables via command line
-uv run scripts/sync_to_jellyfin.py --host myserver --path /mnt/music
+scripts/sync_to_jellyfin.py --host myserver --path /mnt/music
 ```
 
 **Required environment variables:**
@@ -731,8 +731,8 @@ sudo chmod a+x "/path/to/music/Artist Name"/*
 
 ## Helper Scripts
 
-All scripts live in `scripts/`. The Python ones declare their dependencies inline,
-so run them with `uv run scripts/<name>.py` (see [Running the scripts](#running-the-scripts)).
+All scripts live in `scripts/`. The Python ones declare their dependencies inline
+and have a `uv` shebang, so run them directly as `scripts/<name>.py` (see [Running the scripts](#running-the-scripts)).
 The shell scripts run directly. The CD-rip helpers (for the optical-drive machine)
 live in `rip/`.
 
@@ -788,21 +788,21 @@ cd ~/Music/curated/"Artist Name"/"Album Title"
 # Use metaflac to apply tags (see Tagging Files section)
 
 # 4. Fetch artwork
-uv run scripts/fetch_album_art.py --directory ~/Music/curated/"Artist Name"
-uv run scripts/fetch_artist_image.py --artist-dir ~/Music/curated/"Artist Name"
+scripts/fetch_album_art.py --directory ~/Music/curated/"Artist Name"
+scripts/fetch_artist_image.py --artist-dir ~/Music/curated/"Artist Name"
 
 # 5. Manually add artist image if needed
 cp ~/Downloads/artist-image.jpg ~/Music/curated/"Artist Name"/folder.jpg
 
 # 6. Fetch synced lyrics (.lrc sidecars)
-uv run scripts/fetch_lyrics.py ~/Music/curated/"Artist Name"/"Album Title"
+scripts/fetch_lyrics.py ~/Music/curated/"Artist Name"/"Album Title"
 
 # 7. Verify everything
 ls -R ~/Music/curated/"Artist Name"
 metaflac --list "01 - Track Name.flac" | grep comment
 
 # 8. Sync to Jellyfin server (always use --scan to refresh the library)
-uv run scripts/sync_to_jellyfin.py --scan
+scripts/sync_to_jellyfin.py --scan
 ```
 
 ## Troubleshooting

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
 """Split a FLAC file based on a CUE sheet"""
 
 import argparse

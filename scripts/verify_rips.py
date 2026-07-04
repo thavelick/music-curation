@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
 """Verify CD rips against the AccurateRip and CUETools (CTDB) databases.
 
 For each album of FLAC tracks, this builds a temporary per-track cue sheet and

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
 """Fully sync the music library down from the Jellyfin server.
 
 Companion to sync_to_jellyfin.py, in the other direction: rsyncs the entire

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
 """
 Sync music library to Jellyfin server via rsync with proper permissions handling.
 
