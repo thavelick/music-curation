@@ -66,6 +66,7 @@ LRCLIB_SEARCH = "https://lrclib.net/api/search"
 # LRCLIB asks clients to identify themselves with a User-Agent linking to the app.
 USER_AGENT = "music-curation-fetch-lyrics/1.0 (https://github.com/thavelick/music-curation)"
 RATE_LIMIT_DELAY = 0.5  # min seconds between *every* HTTP call, to be polite to LRCLIB
+REQUEST_TIMEOUT = 40  # seconds per HTTP call; some titles return large/slow responses
 MAX_RETRIES = 5  # attempts per request when LRCLIB returns 429 / 5xx
 BACKOFF_BASE = 2.0  # seconds; exponential backoff base for retries
 SYNCED_DURATION_TOLERANCE = 3  # seconds; prefer a synced match within this of our track
@@ -143,7 +144,7 @@ def lrclib_lookup(session, artist, title, album, duration):
         params["album_name"] = album
     if duration is not None:
         params["duration"] = duration
-    r = session.get(LRCLIB_GET, params=params, timeout=20)
+    r = session.get(LRCLIB_GET, params=params, timeout=REQUEST_TIMEOUT)
     exact = None
     if r.status_code == 200:
         exact = r.json()
@@ -153,7 +154,7 @@ def lrclib_lookup(session, artist, title, album, duration):
         r.raise_for_status()
 
     # Either /get missed, or it returned plain-only -- search for a synced match.
-    r = session.get(LRCLIB_SEARCH, params={"artist_name": artist, "track_name": title}, timeout=20)
+    r = session.get(LRCLIB_SEARCH, params={"artist_name": artist, "track_name": title}, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
     results = r.json()
 
