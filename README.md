@@ -328,6 +328,7 @@ When adding a new album to the curated library:
 4. **Add ReplayGain tags** (if missing) - see [ReplayGain](#replaygain-volume-normalization)
 5. **Fetch artwork** - see [Getting Artwork](#getting-artwork)
 6. **Fetch lyrics** - run `scripts/fetch_lyrics.py` on the album to pull synced `.lrc` sidecars - see [Getting Lyrics](#getting-lyrics)
+6a. **Fetch NFO metadata** - run `scripts/fetch_nfo.py` to write `artist.nfo`/`album.nfo` (bio, review, rating) - see [Getting NFO Metadata](#getting-nfo-metadata)
 7. **Verify quality** - check files play correctly with proper durations
 8. **Verify rip accuracy** (CD rips) - run `scripts/verify_rips.py` on the album and triage per [What to actually worry about](#what-to-actually-worry-about)
 9. **Remove `.m3u` and `.cue` sidecars** - delete any `.m3u` playlist and `.cue` sheet from the album dir; they reference the pre-curation filenames and go stale once tracks are renamed. Keep the `.log`/`.toc` as rip provenance.
@@ -592,6 +593,45 @@ scripts/fetch_lyrics.py                                               # whole cu
   default; pass `--plain` to save those as `.txt` (Jellyfin still displays them,
   just without timing).
 
+### Getting NFO Metadata
+
+Write `artist.nfo` / `album.nfo` sidecars carrying the fields that have **no home
+in audio tags** — artist biography, formed year, album review/rating, and
+mood/style — so Jellyfin can show a proper artist bio and album review. These are
+[Kodi-format](https://kodi.wiki/view/NFO_files/Music) XML files (Jellyfin reads the
+same schema); the data is scraped from [TheAudioDB](https://www.theaudiodb.com)
+(the same source as [artist images](#artist-images)), keyed off the MusicBrainz IDs
+already embedded in your tracks. Genre/year still live in your tags — NFO only adds
+what tags can't hold.
+
+The script auto-detects whether the path is an album, an artist, or a library
+root, and writes `artist.nfo` next to each `folder.jpg` and `album.nfo` next to each
+`cover.jpg`. Fetch **before** [syncing to Jellyfin](#syncing-to-jellyfin-server) so
+a scan picks them up:
+
+```bash
+scripts/fetch_nfo.py ~/Music/curated/"Artist Name"/"Album Title"   # one album.nfo
+scripts/fetch_nfo.py ~/Music/curated/"Artist Name"                 # artist + its albums
+scripts/fetch_nfo.py                                               # whole curated library
+```
+
+- Existing `.nfo` files are skipped; pass `--overwrite` to replace them.
+- Uses the MusicBrainz **artist** ID for `artist.nfo` and the **release group** ID
+  (`MUSICBRAINZ_RELEASEGROUPID`) for `album.nfo` — so accurate MB tags are what make
+  a match. If a track has no MB IDs, run [`fetch_artist_image.py`](#artist-images)
+  first (it looks them up and tags the files).
+- Biographies and reviews are normalized to blank-line-separated paragraphs —
+  TheAudioDB inconsistently uses single newlines, which Jellyfin would otherwise
+  render as one wall of text.
+- Jellyfin's music UI is thinner than its video UI: it renders the bio, genre,
+  year, review, and rating, but folds `style` into artist **tags** and doesn't
+  surface `mood` on music pages. The fields are still written (they feed tag-based
+  browsing and Instant Mixes, and other clients may show them).
+- `--lang xx` picks the biography language (default `en`), e.g. `--lang de`.
+- NFO is a Kodi/Jellyfin/Emby convention, so unlike embedded tags it won't carry
+  over to Plex/Navidrome — a small dent in the library's otherwise format-agnostic
+  portability.
+
 ## Common Tasks
 
 ### Replacing Albums with Better Versions
@@ -759,6 +799,9 @@ live in `rip/`.
 ### Lyrics
 - `fetch_lyrics.py` — Download synced `.lrc` lyrics from LRCLIB (see [Getting Lyrics](#getting-lyrics))
 
+### Metadata Sidecars
+- `fetch_nfo.py` — Write `artist.nfo`/`album.nfo` (bio, review, rating, mood) from TheAudioDB (see [Getting NFO Metadata](#getting-nfo-metadata))
+
 ### Quality Checks
 - `get_runtime.py` — Calculate total runtime of audio files in a directory
 - `verify_rips.py` — Verify rips against AccurateRip/CTDB (see [Verifying Rips](#verifying-rips-accuraterip))
@@ -796,6 +839,9 @@ cp ~/Downloads/artist-image.jpg ~/Music/curated/"Artist Name"/folder.jpg
 
 # 6. Fetch synced lyrics (.lrc sidecars)
 scripts/fetch_lyrics.py ~/Music/curated/"Artist Name"/"Album Title"
+
+# 6a. Fetch NFO metadata (artist.nfo / album.nfo)
+scripts/fetch_nfo.py ~/Music/curated/"Artist Name"
 
 # 7. Verify everything
 ls -R ~/Music/curated/"Artist Name"
