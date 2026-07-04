@@ -23,6 +23,13 @@ Synced (timestamped) lyrics are written as .lrc. When only plain lyrics exist,
 nothing is written unless --plain is given, in which case they go to .txt.
 Existing sidecars are left alone unless --overwrite is given.
 
+Negative results are remembered in a cache file (.lyrics_cache.json at the
+library root) so repeat runs don't re-query tracks LRCLIB has nothing for. The
+cache distinguishes a "full_miss" (no lyrics at all) from "plain_only" (plain
+exists but no synced), so a later --plain run still fetches the plain-only
+tracks while skipping the full misses. --overwrite ignores the cache and
+re-queries everything; --no-cache disables reading and writing it entirely.
+
 LRCLIB matches on artist/title/album *and duration*, so accurate tags and
 durations give the best hit rate. A track whose duration is off by more than a
 couple seconds from the reference may miss.
@@ -40,6 +47,7 @@ Environment overrides:
 """
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -52,12 +60,49 @@ MUSIC_DIR = Path(os.environ.get("MUSIC_DIR", Path.home() / "Music")).expanduser(
 DEFAULT_ROOT = MUSIC_DIR / "curated"
 
 AUDIO_EXTS = {".flac", ".mp3", ".m4a", ".ogg", ".opus", ".wav"}
+CACHE_NAME = ".lyrics_cache.json"  # negative-result cache, written at the library root
 LRCLIB_GET = "https://lrclib.net/api/get"
 LRCLIB_SEARCH = "https://lrclib.net/api/search"
 # LRCLIB asks clients to identify themselves with a User-Agent linking to the app.
 USER_AGENT = "music-curation-fetch-lyrics/1.0 (https://github.com/thavelick/music-curation)"
-RATE_LIMIT_DELAY = 0.5  # seconds between API calls, to be polite to LRCLIB
+RATE_LIMIT_DELAY = 0.5  # min seconds between *every* HTTP call, to be polite to LRCLIB
+MAX_RETRIES = 5  # attempts per request when LRCLIB returns 429 / 5xx
+BACKOFF_BASE = 2.0  # seconds; exponential backoff base for retries
 SYNCED_DURATION_TOLERANCE = 3  # seconds; prefer a synced match within this of our track
+
+
+class RateLimitedSession:
+    """A requests.Session wrapper that spaces out and retries LRCLIB calls.
+
+    Two things matter for being a good LRCLIB citizen:
+      1. A minimum gap between *every* HTTP call (a single track can fire both a
+         /get and a /search, so a per-track sleep alone is not enough).
+      2. Honouring 429 (Too Many Requests) / 5xx by backing off and retrying,
+         respecting a Retry-After header when the server sends one.
+    """
+
+    def __init__(self, delay=RATE_LIMIT_DELAY):
+        self.session = requests.Session()
+        self.session.headers["User-Agent"] = USER_AGENT
+        self.delay = delay
+        self._last_call = 0.0
+
+    def get(self, url, **kwargs):
+        r = None
+        for attempt in range(MAX_RETRIES):
+            wait = self.delay - (time.monotonic() - self._last_call)
+            if wait > 0:
+                time.sleep(wait)
+            r = self.session.get(url, **kwargs)
+            self._last_call = time.monotonic()
+            if r.status_code == 429 or r.status_code >= 500:
+                retry_after = r.headers.get("Retry-After")
+                sleep_for = float(retry_after) if retry_after and retry_after.isdigit() else BACKOFF_BASE ** attempt
+                print(f"  [wait   ] HTTP {r.status_code}, backing off {sleep_for:.0f}s", flush=True)
+                time.sleep(sleep_for)
+                continue
+            return r
+        return r  # exhausted retries; return the last response for the caller to handle
 
 
 def first_tag(audio, *names):
@@ -131,6 +176,18 @@ def lrclib_lookup(session, artist, title, album, duration):
     return min(results, key=lambda c: abs((c.get("duration") or 0) - duration))
 
 
+def load_cache(cache_path):
+    """Load the negative-result cache: {absolute audio path: "full_miss"|"plain_only"}."""
+    try:
+        return json.loads(cache_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_cache(cache_path, cache):
+    cache_path.write_text(json.dumps(cache, indent=0, sort_keys=True), encoding="utf-8")
+
+
 def write_sidecar(path, text, suffix):
     sidecar = path.with_suffix(suffix)
     sidecar.write_text(text, encoding="utf-8")
@@ -160,7 +217,8 @@ def main():
     ap.add_argument("paths", nargs="*", help="album/artist dirs or files (default: --root)")
     ap.add_argument("--root", default=str(DEFAULT_ROOT), help=f"library root (default: {DEFAULT_ROOT})")
     ap.add_argument("--plain", action="store_true", help="also write unsynced lyrics as .txt when no synced lyrics exist")
-    ap.add_argument("--overwrite", action="store_true", help="replace existing .lrc/.txt sidecars")
+    ap.add_argument("--overwrite", action="store_true", help="replace existing .lrc/.txt sidecars and ignore the miss cache")
+    ap.add_argument("--no-cache", action="store_true", help="don't read or write the negative-result cache")
     args = ap.parse_args()
 
     # flush each line so progress is visible when output is piped/redirected
@@ -172,53 +230,82 @@ def main():
     if not files:
         sys.exit("No audio files found.")
 
-    session = requests.Session()
-    session.headers["User-Agent"] = USER_AGENT
+    session = RateLimitedSession()
 
-    counts = {"synced": 0, "plain": 0, "skipped": 0, "missing": 0, "error": 0}
+    cache_path = Path(args.root) / CACHE_NAME
+    cache = {} if args.no_cache else load_cache(cache_path)
+    cache_dirty = False
+
+    counts = {"synced": 0, "plain": 0, "skipped": 0, "cached": 0, "missing": 0, "error": 0}
     progress(f"Fetching lyrics for {len(files)} track(s)...\n")
-    for path in files:
-        label = path.name
-        lrc = path.with_suffix(".lrc")
-        txt = path.with_suffix(".txt")
-        if not args.overwrite and (lrc.exists() or txt.exists()):
-            counts["skipped"] += 1
-            progress(f"  [skip   ] {label} (sidecar exists)")
-            continue
+    try:
+        for path in files:
+            label = path.name
+            key = str(path)
+            lrc = path.with_suffix(".lrc")
+            txt = path.with_suffix(".txt")
+            # A synced .lrc means we're done. A plain .txt does *not* count -- we
+            # still try for synced lyrics unless --plain says plain is acceptable.
+            already = lrc.exists() or (txt.exists() and args.plain)
+            if not args.overwrite and already:
+                counts["skipped"] += 1
+                progress(f"  [skip   ] {label} (sidecar exists)")
+                continue
 
-        meta = track_metadata(path)
-        if meta is None:
-            counts["error"] += 1
-            progress(f"  [error  ] {label} (missing artist/title tags)")
-            continue
-        artist, title, album, duration = meta
+            # Skip tracks we've already looked up and know LRCLIB has nothing new
+            # for: a full miss always, and a plain-only miss unless --plain wants
+            # the plain lyrics we haven't written yet.
+            cached = cache.get(key)
+            if not args.overwrite and (cached == "full_miss" or (cached == "plain_only" and not args.plain)):
+                counts["cached"] += 1
+                progress(f"  [cached ] {label} (known {cached})")
+                continue
 
-        try:
-            match = lrclib_lookup(session, artist, title, album, duration)
-        except requests.RequestException as e:
-            counts["error"] += 1
-            progress(f"  [error  ] {label} ({e})")
-            continue
-        finally:
-            time.sleep(RATE_LIMIT_DELAY)
+            meta = track_metadata(path)
+            if meta is None:
+                counts["error"] += 1
+                progress(f"  [error  ] {label} (missing artist/title tags)")
+                continue
+            artist, title, album, duration = meta
 
-        synced = (match or {}).get("syncedLyrics")
-        plain = (match or {}).get("plainLyrics")
-        if synced:
-            written = write_sidecar(path, synced, ".lrc")
-            counts["synced"] += 1
-            progress(f"  [synced ] {label} -> {written.name}")
-        elif plain and args.plain:
-            written = write_sidecar(path, plain, ".txt")
-            counts["plain"] += 1
-            progress(f"  [plain  ] {label} -> {written.name}")
-        else:
-            counts["missing"] += 1
-            note = "only plain available, use --plain" if plain else "no lyrics found"
-            progress(f"  [miss   ] {label} ({note})")
+            try:
+                match = lrclib_lookup(session, artist, title, album, duration)
+            except requests.RequestException as e:
+                counts["error"] += 1
+                progress(f"  [error  ] {label} ({e})")
+                continue
+
+            synced = (match or {}).get("syncedLyrics")
+            plain = (match or {}).get("plainLyrics")
+            if synced:
+                written = write_sidecar(path, synced, ".lrc")
+                if txt.exists():
+                    txt.unlink()  # drop the redundant plain sidecar now that we have synced
+                cache.pop(key, None)  # resolved -- no longer a miss
+                cache_dirty = True
+                counts["synced"] += 1
+                progress(f"  [synced ] {label} -> {written.name}")
+            elif plain and args.plain:
+                written = write_sidecar(path, plain, ".txt")
+                # Wrote plain, but there's still no synced version: record it so a
+                # future non-plain run skips it instead of re-querying.
+                cache[key] = "plain_only"
+                cache_dirty = True
+                counts["plain"] += 1
+                progress(f"  [plain  ] {label} -> {written.name}")
+            else:
+                cache[key] = "plain_only" if plain else "full_miss"
+                cache_dirty = True
+                counts["missing"] += 1
+                note = "only plain available, use --plain" if plain else "no lyrics found"
+                progress(f"  [miss   ] {label} ({note})")
+    finally:
+        # Persist whatever we learned even if interrupted mid-run.
+        if cache_dirty and not args.no_cache:
+            save_cache(cache_path, cache)
 
     print("\n=== Summary ===")
-    for k in ("synced", "plain", "skipped", "missing", "error"):
+    for k in ("synced", "plain", "skipped", "cached", "missing", "error"):
         print(f"  {k:8}: {counts[k]}")
 
 
