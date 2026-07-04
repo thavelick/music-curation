@@ -28,7 +28,7 @@ The Python scripts under `scripts/` declare their dependencies inline ([PEP 723]
 uv run scripts/verify_rips.py
 ```
 
-`uv run` creates a throwaway environment with the right dependencies automatically. If you'd rather manage dependencies yourself, the requirements are `mutagen`, `musicbrainzngs`, and `requests`. Several scripts also shell out to external tools (`ffmpeg`/`ffprobe`, `metaflac`, `mono`, `rsync`, `imv`) — see each section for specifics.
+`uv run` creates a throwaway environment with the right dependencies automatically. If you'd rather manage dependencies yourself, the requirements are `mutagen`, `musicbrainzngs`, and `requests`. Several scripts also shell out to external tools (`ffmpeg`/`ffprobe`, `metaflac`, `rsgain`, `mono`, `rsync`, `imv`) — see each section for specifics.
 
 ## Configuration
 
@@ -473,13 +473,50 @@ Check whether tags exist:
 metaflac --export-tags-to=- "01 Track Name.flac" | grep -i replaygain || echo "no replaygain"
 ```
 
-Add them for a whole album at once (run from inside the album folder):
+There are two tools, depending on the file. Use `metaflac` for ordinary stereo
+FLAC; use `rsgain` for everything `metaflac` can't do (MP3, 5.1/surround, and the
+occasional FLAC whose decoder `metaflac` chokes on).
+
+#### Stereo FLAC — `metaflac`
+
+Add tags for a whole album at once (run from inside the album folder):
 
 ```bash
 metaflac --add-replay-gain *.flac
 ```
 
-This writes per-track `REPLAYGAIN_TRACK_*` plus a shared `REPLAYGAIN_ALBUM_*` computed across all the files passed in one invocation. For **various-artists compilations**, the tracks come from unrelated sources, so play them in **track mode** (per-song leveling) rather than album mode. Run the command once per disc so each disc's album gain is computed over its own tracks.
+This writes per-track `REPLAYGAIN_TRACK_*` plus a shared `REPLAYGAIN_ALBUM_*`
+computed across all the files passed in one invocation. Run it once per disc so
+each disc's album gain is computed over its own tracks.
+
+`metaflac`'s ReplayGain analyzer is **stereo-only** and refuses multichannel
+files (`# of channels (6) is not supported`). It also occasionally fails a
+single track with `ERROR: during analysis (decoding file)`. In both cases, fall
+back to `rsgain` below.
+
+#### MP3, 5.1 surround, and problem FLAC — `rsgain`
+
+[`rsgain`](https://github.com/complexlogic/rsgain) (`brew install rsgain`) uses
+libebur128 (ITU-R BS.1770 loudness), so it handles **MP3**, **multichannel
+(5.1/7.1)** — excluding the LFE channel per spec — and FLACs that `metaflac`
+can't decode. Album mode, writing ReplayGain 2.0 tags in place:
+
+```bash
+rsgain custom -a -s i *.flac        # or *.mp3
+```
+
+`-a` = compute album gain, `-s i` = scan and write tags. Add `-s s` to scan and
+print values **without** writing (a dry run). MP3 tags are written as ID3v2
+`TXXX:REPLAYGAIN_*` frames; FLAC tags are the same `REPLAYGAIN_*` Vorbis comments
+`metaflac` writes, so players read either identically. (Note: `rsgain` references
+−18 LUFS while `metaflac` references 89 dB SPL / ReplayGain 1 — the resulting
+gain values differ slightly, which is cosmetic and doesn't affect leveling.)
+
+#### Various-artists compilations
+
+For compilations the tracks come from unrelated sources, so play them in **track
+mode** (per-song leveling) rather than album mode — the shared album gain is
+meaningless across a grab-bag of masters.
 
 ### Getting Artwork
 
