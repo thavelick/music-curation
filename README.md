@@ -116,9 +116,23 @@ sudo podman run --rm -it --device /dev/sr0 --user 0 \
 ```
 
 - **`-o "$RIP_OFFSET"`** read offset · **`-p`** prompt to pick the MusicBrainz release · **`-C complete`** cover art · **`-k`** keep going if a track fails
-- Output lands in `~/whipper/out/<Artist>/<Album>/` on the rip host (**root-owned** — `sudo`/rsync to move it), with a per-track AccurateRip verdict in the log. Pull it down and curate like any other rip.
+- Output lands in `~/whipper/out/album/<Artist> - <Album>/` on the rip host (one flat folder per disc), with a per-track AccurateRip verdict in the log.
 
 After whipper finishes, the wrapper runs a **rescue pass** (below) to fill in any tracks whipper skipped, so the output dir is always complete.
+
+**Pull it down.** The files are root-owned but world-readable, so a plain `rsync` reads them (no `sudo` — the rip host has no passwordless `sudo` anyway):
+
+```bash
+rsync -av "$RIP_HOST:whipper/out/album/Artist - Album/" \
+  ~/Music/curated/"Artist"/"Album"/
+```
+
+**Then curate.** Unlike abcde, a whipper rip lands unnamed/undertagged, so before the [Processing Workflow](#processing-workflow) fix these up:
+
+- **Rename** `NN. Artist - Title.flac` → `NN Title.flac` (the library layout).
+- **DATE** → `YYYY` (whipper writes e.g. `2007-11`).
+- **GENRE** — missing; set it (e.g. from the `<genre>` [`fetch_nfo.py`](#getting-nfo-metadata) writes to `album.nfo`).
+- **ReplayGain** — missing; add per [ReplayGain](#replaygain-volume-normalization).
 
 **Tradeoffs:** whipper is noticeably **slower** than abcde (a one-time subchannel scan + careful per-track extraction) and interactive. Use it when verification matters; use abcde for everyday speed.
 
