@@ -309,6 +309,9 @@ def main():
     for k in ("synced", "plain", "skipped", "cached", "missing", "error"):
         print(f"  {k:8}: {counts[k]}")
 
+    if counts["error"] > 0:
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

@@ -134,6 +134,15 @@ rsync -av "$RIP_HOST:whipper/out/album/Artist - Album/" \
 - **GENRE** — missing; set it (e.g. from the `<genre>` [`fetch_nfo.py`](#getting-nfo-metadata) writes to `album.nfo`).
 - **ReplayGain** — missing; add per [ReplayGain](#replaygain-volume-normalization).
 
+**Or automate the whole thing.** [`scripts/curate_whipper_rip.py`](scripts/curate_whipper_rip.py) drives the entire post-rip flow above end to end — pull, rename, NFO, tags, ReplayGain, artist image, lyrics, sidecar cleanup, verification, tag/image checks, and (if everything checks out) sync to Jellyfin:
+
+```bash
+scripts/curate_whipper_rip.py            # curate the newest rip on $RIP_HOST
+scripts/curate_whipper_rip.py battle      # curate the rip whose folder name matches "battle"
+```
+
+It only syncs to Jellyfin automatically when **all** of these hold: every track's AccurateRip verdict in the whipper log was a verified match (and no `RESCUED-TRACKS.txt`), [`verify_rips.py`](#verifying-rips-accuraterip) confirms `OK`/`OK*`, and a genre was found via [`fetch_nfo.py`](#getting-nfo-metadata). Otherwise it still curates the album but prints exactly which gate(s) failed and skips the sync. It aborts to manual curation for a rip folder that looks like one disc of a [multi-disc set](#multi-disc-albums), or if the destination album folder already exists (in which case, investigate and resume with the individual scripts).
+
 **Tradeoffs:** whipper is noticeably **slower** than abcde (a one-time subchannel scan + careful per-track extraction) and interactive. Use it when verification matters; use abcde for everyday speed.
 
 #### Recovering skipped tracks
@@ -819,6 +828,7 @@ live in `rip/`.
 ### Quality Checks
 - `get_runtime.py` — Calculate total runtime of audio files in a directory
 - `verify_rips.py` — Verify rips against AccurateRip/CTDB (see [Verifying Rips](#verifying-rips-accuraterip))
+- `curate_whipper_rip.py` — Automate the whole post-whipper curation flow: pull, rename, tag, verify, and sync (see [Accurate ripping with whipper](#accurate-ripping-with-whipper-when-bit-perfect-matters))
 
 ### Syncing
 - `sync_to_jellyfin.py` — Sync the library to a Jellyfin server with automatic permission fixing
