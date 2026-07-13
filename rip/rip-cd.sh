@@ -35,3 +35,6 @@ sudo podman run --rm -i --device "$DEVICE" --user 0 \
   -e RIP_OFFSET="$RIP_OFFSET" \
   --entrypoint python3 \
   "$IMAGE" - /output --device "$DEVICE" < "$SCRIPT_DIR/rescue-skipped.py"
+
+echo "Ejecting $DEVICE..."
+eject "$DEVICE" || echo "  (could not eject $DEVICE automatically -- eject it by hand)"
