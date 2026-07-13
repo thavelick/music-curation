@@ -36,5 +36,37 @@ sudo podman run --rm -i --device "$DEVICE" --user 0 \
   --entrypoint python3 \
   "$IMAGE" - /output --device "$DEVICE" < "$SCRIPT_DIR/rescue-skipped.py"
 
+# Speed summary: reconstruct how long the rip took vs. the disc's runtime from
+# the whipper log (it records per-track length + extraction speed, not wall
+# time). A loud, fast rip (high x) means a clean disc the drive could spin up
+# on; a slow one means the drive throttled down to re-read a marginal disc.
+LOG="$(ls -t "$HOME"/whipper/out/album/*/*.log 2>/dev/null | head -1)"
+if [ -n "$LOG" ]; then
+  python3 - "$LOG" <<'PY' || echo "  (speed analysis skipped)"
+import re, sys
+
+text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+
+def frames_to_sec(s):  # TOC lengths are MM:SS:FF, 75 frames/sec
+    m, sec, ff = map(int, s.split(":"))
+    return m * 60 + sec + ff / 75.0
+
+lengths = [frames_to_sec(x) for x in re.findall(r"Length:\s+(\d+:\d+:\d+)", text)]
+speeds = [float(x) for x in re.findall(r"Extraction speed:\s+([\d.]+)\s*X", text)]
+n = min(len(lengths), len(speeds))
+lengths, speeds = lengths[:n], speeds[:n]
+if not n:
+    sys.exit("  (no speed data in log)")
+
+runtime = sum(lengths)
+riptime = sum(l / s for l, s in zip(lengths, speeds))  # length/speed = time/track
+hms = lambda s: f"{int(s // 60)}:{int(s % 60):02d}"
+print(
+    f"Rip speed: {hms(runtime)} audio in {hms(riptime)} "
+    f"(avg {runtime / riptime:.1f}x, range {min(speeds):.1f}-{max(speeds):.1f}x)"
+)
+PY
+fi
+
 echo "Ejecting $DEVICE..."
 eject "$DEVICE" || echo "  (could not eject $DEVICE automatically -- eject it by hand)"

@@ -118,7 +118,7 @@ sudo podman run --rm -it --device /dev/sr0 --user 0 \
 - **`-o "$RIP_OFFSET"`** read offset · **`-p`** prompt to pick the MusicBrainz release · **`-C complete`** cover art · **`-k`** keep going if a track fails
 - Output lands in `~/whipper/out/album/<Artist> - <Album>/` on the rip host (one flat folder per disc), with a per-track AccurateRip verdict in the log.
 
-After whipper finishes, the wrapper runs a **rescue pass** (below) to fill in any tracks whipper skipped, so the output dir is always complete.
+After whipper finishes, the wrapper runs a **rescue pass** (below) to fill in any tracks whipper skipped, so the output dir is always complete. It also prints a one-line speed summary (audio runtime vs. reconstructed rip time); a low average × flags a disc the drive had to throttle down to re-read.
 
 **Pull it down.** The files are root-owned but world-readable, so a plain `rsync` reads them (no `sudo` — the rip host has no passwordless `sudo` anyway):
 
