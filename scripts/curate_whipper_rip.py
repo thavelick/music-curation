@@ -13,7 +13,8 @@ script automates the whole post-rip workflow described in the README's
      and check for a `RESCUED-TRACKS.txt` breadcrumb.
   3. Pull it down with rsync into $MUSIC_DIR/curated/<Artist>/<Album>/.
   4. Rename tracks to the library's `NN Title.flac` convention.
-  5. Fetch NFO metadata (scripts/fetch_nfo.py) and read its genre.
+  5. Fetch artist + album NFO metadata (scripts/fetch_nfo.py) and read the
+     album's genre.
   6. Fix tags with metaflac: DATE truncated to a year, zero-padded
      TRACKNUMBER, TRACKTOTAL, and GENRE (from the NFO).
   7. Add ReplayGain.
@@ -277,8 +278,14 @@ def rename_tracks(album_dir):
 
 
 def fetch_nfo(album_dir):
+    """Write this album's album.nfo and its artist's artist.nfo via fetch_nfo.py.
+
+    --include-artist scopes the run to this album plus its parent artist: the
+    artist's other albums are never touched, so re-ripping into an existing
+    artist can't rewrite (or newly create) NFOs for their older albums.
+    """
     script = REPO_ROOT / "scripts" / "fetch_nfo.py"
-    proc = run([str(script), str(album_dir)])
+    proc = run([str(script), "--include-artist", str(album_dir)])
     if proc.returncode != 0:
         print(f"  ! fetch_nfo.py exited {proc.returncode} (continuing without NFO)")
 

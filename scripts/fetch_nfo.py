@@ -281,9 +281,18 @@ def process_album(album_dir: Path, artist_name: str, api_key: str, overwrite: bo
     write_nfo(root, nfo_path, dry_run)
 
 
-def process_tree(path: Path, api_key: str, lang: str, overwrite: bool, dry_run: bool) -> None:
-    """Dispatch on whether `path` is an album, an artist folder, or a root."""
+def process_tree(
+    path: Path, api_key: str, lang: str, overwrite: bool, dry_run: bool, include_artist: bool
+) -> None:
+    """Dispatch on whether `path` is an album, an artist folder, or a root.
+
+    With `include_artist`, a single album folder also gets its parent
+    artist.nfo written -- but no sibling albums are touched.
+    """
     if has_audio(path):  # a single album folder
+        if include_artist:
+            print(f"\n{path.parent.name}")
+            process_artist(path.parent, api_key, lang, overwrite, dry_run)
         print(f"\n{path.parent.name} / {path.name}")
         process_album(path, path.parent.name, api_key, overwrite, dry_run)
         return
@@ -300,7 +309,7 @@ def process_tree(path: Path, api_key: str, lang: str, overwrite: bool, dry_run: 
 
     for artist in children:  # a library root
         if any(has_audio(c) for c in (d for d in artist.iterdir() if d.is_dir())):
-            process_tree(artist, api_key, lang, overwrite, dry_run)
+            process_tree(artist, api_key, lang, overwrite, dry_run, include_artist)
 
 
 def main() -> int:
@@ -312,6 +321,12 @@ def main() -> int:
     )
     parser.add_argument("--overwrite", action="store_true", help="Replace existing .nfo files")
     parser.add_argument("--dry-run", action="store_true", help="Print NFOs without writing")
+    parser.add_argument(
+        "--include-artist",
+        action="store_true",
+        help="When given a single album folder, also write its parent artist.nfo "
+        "(sibling albums are left untouched)",
+    )
     parser.add_argument("--lang", default="en", help="Biography language code (default: en)")
     parser.add_argument(
         "--audiodb-api-key",
@@ -336,7 +351,9 @@ def main() -> int:
     print(f"Fetching NFO metadata for: {root}")
     print(f"Mode: {'DRY RUN' if args.dry_run else 'LIVE'}")
     print("=" * 60)
-    process_tree(root, args.audiodb_api_key, args.lang, args.overwrite, args.dry_run)
+    process_tree(
+        root, args.audiodb_api_key, args.lang, args.overwrite, args.dry_run, args.include_artist
+    )
     print("\n" + "=" * 60)
     print("Done")
     print("=" * 60)
