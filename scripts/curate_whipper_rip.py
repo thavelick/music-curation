@@ -13,10 +13,11 @@ script automates the whole post-rip workflow described in the README's
      and check for a `RESCUED-TRACKS.txt` breadcrumb.
   3. Pull it down with rsync into $MUSIC_DIR/curated/<Artist>/<Album>/.
   4. Rename tracks to the library's `NN Title.flac` convention.
-  5. Fetch artist + album NFO metadata (scripts/fetch_nfo.py) and read the
-     album's genre.
+  5. Fetch artist + album NFO metadata (scripts/fetch_nfo.py), and derive the
+     album's genre from MusicBrainz (release-group's top-voted genre, falling
+     back to the artist's).
   6. Fix tags with metaflac: DATE truncated to a year, zero-padded
-     TRACKNUMBER, TRACKTOTAL, and GENRE (from the NFO).
+     TRACKNUMBER, TRACKTOTAL, and GENRE (from MusicBrainz).
   7. Add ReplayGain.
   8. Fetch an artist image (scripts/fetch_artist_image.py) -- best effort.
   9. Fetch lyrics (scripts/fetch_lyrics.py), retried once on error.
@@ -48,8 +49,9 @@ import re
 import shlex
 import subprocess
 import sys
+import time
+import urllib.parse
 import urllib.request
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -290,19 +292,74 @@ def fetch_nfo(album_dir):
         print(f"  ! fetch_nfo.py exited {proc.returncode} (continuing without NFO)")
 
 
-def read_nfo_genre(album_dir):
-    nfo_path = album_dir / "album.nfo"
-    if not nfo_path.exists():
+MB_USER_AGENT = "music-curation/1.0 (tristan@havelick.com)"
+MB_RATE_LIMIT = 1.1  # seconds between calls; MusicBrainz asks for <=1 request/second
+
+
+def mb_get(path, params):
+    """GET a MusicBrainz ws/2 JSON resource, spaced to respect the 1 req/s limit."""
+    query = urllib.parse.urlencode({**params, "fmt": "json"})
+    url = f"https://musicbrainz.org/ws/2/{path}?{query}"
+    req = urllib.request.Request(url, headers={"User-Agent": MB_USER_AGENT})
+    time.sleep(MB_RATE_LIMIT)
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.load(resp)
+
+
+def canonical_genre(name):
+    """Title-case a MusicBrainz genre to the library's tag style.
+
+    MusicBrainz genres are lowercase ("blues rock", "hip-hop"); title-casing
+    yields "Blues Rock", "Hip-Hop". A few initialisms are fixed up so they don't
+    come out as "Uk"/"R&b". Kept in sync with scripts/fetch_genres.py.
+    """
+    titled = name.title()
+    fixups = {"Uk": "UK", "Us": "US", "R&B": "R&B", "Edm": "EDM", "Dj": "DJ"}
+    return " ".join(fixups.get(w) or w for w in titled.split(" "))
+
+
+def top_genre(genres):
+    """Canonical name of the highest-voted MusicBrainz genre, or None."""
+    if not genres:
         return None
-    try:
-        root = ET.parse(nfo_path).getroot()
-    except ET.ParseError as e:
-        print(f"  ! Failed to parse {nfo_path.name}: {e}")
-        return None
-    genre_el = root.find("genre")
-    if genre_el is None:
-        return None
-    return (genre_el.text or "").strip() or None
+    return canonical_genre(max(genres, key=lambda g: g.get("count", 0))["name"])
+
+
+def fetch_mb_genre(flacs):
+    """Best album genre from MusicBrainz, or None.
+
+    Prefers the release group's top-voted genre, falling back to the artist's.
+    MusicBrainz genres are a community-voted controlled vocabulary keyed off the
+    MBIDs already in the tags -- more accurate and consistent than TheAudioDB's
+    single hand-entered strGenre (which e.g. files The Black Keys under "Indie").
+    scripts/fetch_genres.py is the standalone/backfill version of this.
+    """
+    rg_mbid = get_tag(flacs[0], "MUSICBRAINZ_RELEASEGROUPID")
+    if not rg_mbid:
+        release_mbid = get_tag(flacs[0], "MUSICBRAINZ_ALBUMID")
+        if release_mbid:
+            try:
+                data = mb_get(f"release/{release_mbid}", {"inc": "release-groups"})
+                rg_mbid = data.get("release-group", {}).get("id")
+            except Exception as e:
+                print(f"  ! MusicBrainz release-group lookup failed ({e})")
+    if rg_mbid:
+        try:
+            genre = top_genre(mb_get(f"release-group/{rg_mbid}", {"inc": "genres"}).get("genres"))
+            if genre:
+                return genre
+        except Exception as e:
+            print(f"  ! MusicBrainz release-group genre lookup failed ({e})")
+
+    artist_mbid = get_tag(flacs[0], "MUSICBRAINZ_ALBUMARTISTID")
+    if artist_mbid:
+        try:
+            genre = top_genre(mb_get(f"artist/{artist_mbid}", {"inc": "genres"}).get("genres"))
+            if genre:
+                return genre
+        except Exception as e:
+            print(f"  ! MusicBrainz artist genre lookup failed ({e})")
+    return None
 
 
 # --- Tags --------------------------------------------------------------
@@ -536,14 +593,14 @@ def main():
         if not flacs:
             raise Abort("No FLAC tracks found/renamed after pulling the rip.")
 
-        print("\n--- Step 4: NFO metadata ---")
+        print("\n--- Step 4: NFO metadata + genre ---")
         fetch_nfo(album_dir)
-        genre = read_nfo_genre(album_dir)
+        genre = fetch_mb_genre(flacs)
         missing_genre = genre is None
         if genre:
-            print(f"  Genre from NFO: {genre}")
+            print(f"  Genre from MusicBrainz: {genre}")
         else:
-            print("  ! No genre found in album.nfo; GENRE tag will be left unset")
+            print("  ! No MusicBrainz genre found; GENRE tag will be left unset")
 
         print("\n--- Step 5: Tags ---")
         fix_tags(flacs, genre)
