@@ -11,10 +11,13 @@
 
 These carry the fields that have no home in audio tags -- artist biography,
 formed year, album review, and mood/style -- so Jellyfin can show bios and
-browse/mix by mood once its NFO metadata reader is enabled. Data is scraped
+browse/mix by mood once its NFO metadata reader is enabled. Most data is scraped
 from TheAudioDB (https://www.theaudiodb.com), keyed off the MusicBrainz IDs
 already embedded in your tracks (see fetch_artist_image.py, which uses the same
-API). Genre/year still live in your tags -- NFO only adds what tags can't hold.
+API). The one exception is <genre>: it's taken from MusicBrainz's voted genres
+(release group's top genre, falling back to the artist's) so it matches the
+embedded GENRE tags curate_whipper_rip.py writes, rather than TheAudioDB's
+coarser strGenre. Year still lives only in your tags.
 
 For each artist folder it writes `artist.nfo` (next to folder.jpg); for each
 album folder it writes `album.nfo` (next to cover.jpg). Existing files are left
@@ -48,6 +51,8 @@ from mutagen import File as MutagenFile
 RATE_LIMIT_DELAY = 2.5  # Seconds between API calls
 AUDIODB_API_KEY = "123"  # Default public API key
 AUDIODB_BASE = "https://www.theaudiodb.com/api/v1/json"
+MB_BASE = "https://musicbrainz.org/ws/2"
+MB_USER_AGENT = "music-curation/1.0 (tristan@havelick.com)"
 AUDIO_GLOBS = ["*.flac", "*.mp3", "*.m4a", "*.ogg", "*.opus"]
 
 
@@ -128,6 +133,42 @@ def release_group_from_release(release_mbid: str) -> Optional[str]:
     except Exception as e:
         print(f"  Warning: MusicBrainz release-group lookup failed: {e}")
         return None
+
+
+def canonical_genre(name: str) -> str:
+    """Title-case a MusicBrainz genre to the library's tag style.
+
+    MusicBrainz genres are lowercase ("blues rock", "hip-hop"); title-casing
+    yields "Blues Rock", "Hip-Hop". A few initialisms are fixed up. Kept in sync
+    with scripts/fetch_genres.py and scripts/curate_whipper_rip.py.
+    """
+    titled = name.title()
+    fixups = {"Uk": "UK", "Us": "US", "R&B": "R&B", "Edm": "EDM", "Dj": "DJ"}
+    return " ".join(fixups.get(w) or w for w in titled.split(" "))
+
+
+def mb_top_genre(entity: str, mbid: str) -> Optional[str]:
+    """Highest-voted MusicBrainz genre (canonical-cased) for a release-group or
+    artist, or None. MusicBrainz's community-voted, controlled-vocabulary genres
+    are more accurate/consistent than TheAudioDB's single strGenre, and match the
+    embedded GENRE tags curate_whipper_rip.py writes."""
+    try:
+        time.sleep(RATE_LIMIT_DELAY)
+        resp = requests.get(
+            f"{MB_BASE}/{entity}/{mbid}",
+            params={"inc": "genres", "fmt": "json"},
+            headers={"User-Agent": MB_USER_AGENT},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return None
+        genres = resp.json().get("genres") or []
+    except Exception as e:
+        print(f"  Warning: MusicBrainz genre lookup failed: {e}")
+        return None
+    if not genres:
+        return None
+    return canonical_genre(max(genres, key=lambda g: g.get("count", 0))["name"])
 
 
 def audiodb_get(endpoint: str, mbid: str, api_key: str) -> Optional[dict]:
@@ -234,7 +275,7 @@ def process_artist(artist_dir: Path, api_key: str, lang: str, overwrite: bool, d
     add(root, "musicBrainzArtistID", mbid)
     add(root, "biography", paragraphs(biography_field(a, lang)))
     add(root, "formed", a.get("intFormedYear"))
-    add(root, "genre", a.get("strGenre"))
+    add(root, "genre", mb_top_genre("artist", mbid))
     add(root, "style", a.get("strStyle"))
     add(root, "mood", a.get("strMood"))
     write_nfo(root, nfo_path, dry_run)
@@ -273,7 +314,15 @@ def process_album(album_dir: Path, artist_name: str, api_key: str, overwrite: bo
     add(root, "musicBrainzReleaseGroupID", mbid)
     add(root, "musicBrainzAlbumID", find_tag(files, "musicbrainz_albumid"))
     add(root, "year", al.get("intYearReleased"))
-    add(root, "genre", al.get("strGenre"))
+    # Genre from MusicBrainz (release group's top genre, falling back to the
+    # artist's) so the NFO matches the embedded GENRE tags; the rest of the NFO
+    # still comes from TheAudioDB.
+    album_genre = mb_top_genre("release-group", mbid)
+    if not album_genre:
+        artist_mbid = find_tag(files, "musicbrainz_albumartistid") or find_tag(files, "musicbrainz_artistid")
+        if artist_mbid:
+            album_genre = mb_top_genre("artist", artist_mbid)
+    add(root, "genre", album_genre)
     add(root, "style", al.get("strStyle"))
     add(root, "mood", al.get("strMood"))
     add(root, "review", paragraphs(al.get("strDescription")))
