@@ -64,6 +64,14 @@ ARTIST_GENRE_OVERRIDES = {
     "b7ffd2af-418f-4be2-bdd1-22f8b48613da": "Industrial",  # Nine Inch Nails
 }
 
+# Hand-picked album genres (relative "Artist/Album" folder path -> genre) for the
+# few albums where we deliberately deviate from MusicBrainz's top-voted genre, so
+# --overwrite stays non-destructive. Kept in sync with scripts/fetch_genres.py.
+ALBUM_GENRE_OVERRIDES = {
+    "Nine Inch Nails/Ghosts I-IV": "Ambient",   # MB top vote is industrial (9) vs ambient (8)
+    "Santana/Supernatural": "Rock",             # no release-group genre; artist fallback gives Latin Rock
+}
+
 
 def album_audio_files(album_dir: Path):
     """All audio files in an album, including tracks under Disc N/ subfolders."""
@@ -323,10 +331,12 @@ def process_album(album_dir: Path, artist_name: str, api_key: str, overwrite: bo
     add(root, "musicBrainzReleaseGroupID", mbid)
     add(root, "musicBrainzAlbumID", find_tag(files, "musicbrainz_albumid"))
     add(root, "year", al.get("intYearReleased"))
-    # Genre from MusicBrainz (release group's top genre, falling back to the
-    # artist's) so the NFO matches the embedded GENRE tags; the rest of the NFO
-    # still comes from TheAudioDB.
-    album_genre = mb_top_genre("release-group", mbid)
+    # Genre from a hand-picked override, else MusicBrainz (release group's top
+    # genre, falling back to the artist's) so the NFO matches the embedded GENRE
+    # tags; the rest of the NFO still comes from TheAudioDB.
+    album_genre = ALBUM_GENRE_OVERRIDES.get(f"{artist_name}/{album_dir.name}")
+    if not album_genre:
+        album_genre = mb_top_genre("release-group", mbid)
     if not album_genre:
         artist_mbid = find_tag(files, "musicbrainz_albumartistid") or find_tag(files, "musicbrainz_artistid")
         if artist_mbid:

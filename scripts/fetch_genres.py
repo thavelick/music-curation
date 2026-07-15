@@ -69,6 +69,17 @@ REQUEST_TIMEOUT = 30  # seconds per HTTP call
 MAX_RETRIES = 5  # attempts per request when MB returns 503 / 5xx
 BACKOFF_BASE = 2.0  # seconds; exponential backoff base for retries
 
+# Hand-picked album genres (relative "Artist/Album" folder path -> genre) for the
+# few albums where we deliberately deviate from MusicBrainz's top-voted genre.
+# These win over the derived genre, so re-running with --apply --overwrite stays
+# non-destructive. Kept in sync with scripts/fetch_nfo.py.
+ALBUM_GENRE_OVERRIDES = {
+    # MB's top vote is industrial (9) vs ambient (8); keep the Ghosts trilogy consistent.
+    "Nine Inch Nails/Ghosts I-IV": "Ambient",
+    # No release-group genre in MB; the artist fallback yields "Latin Rock".
+    "Santana/Supernatural": "Rock",
+}
+
 
 class RateLimitedSession:
     """A requests.Session wrapper that keeps MusicBrainz calls under 1/second.
@@ -328,13 +339,17 @@ def main() -> int:
     cache_path = Path(args.root) / CACHE_NAME
     cache = {} if args.no_cache else load_cache(cache_path)
 
-    counts = {"release-group": 0, "artist": 0, "none": 0, "changed": 0, "kept": 0, "tagged": 0}
+    counts = {"release-group": 0, "artist": 0, "override": 0, "none": 0, "changed": 0, "kept": 0, "tagged": 0}
     progress(f"Resolving genres for {len(albums)} album(s)...\n")
     try:
         for album in albums:
             files = album_audio_files(album)
             old = find_tag(files, "genre")
-            genre, votes, source, rg_genres = resolve_genre(session, cache, files, args.refresh)
+            override = ALBUM_GENRE_OVERRIDES.get(f"{album.parent.name}/{album.name}")
+            if override:
+                genre, votes, source, rg_genres = override, 0, "override", []
+            else:
+                genre, votes, source, rg_genres = resolve_genre(session, cache, files, args.refresh)
             counts[source or "none"] += 1
 
             label = f"{album.parent.name} / {album.name}"
@@ -364,6 +379,7 @@ def main() -> int:
     print("\n=== Summary ===")
     print(f"  from release-group : {counts['release-group']}")
     print(f"  from artist        : {counts['artist']}")
+    print(f"  from override      : {counts['override']}")
     print(f"  no genre found     : {counts['none']}")
     print(f"  would change       : {counts['changed']}")
     print(f"  already correct    : {counts['kept']}")
