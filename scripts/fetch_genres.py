@@ -78,6 +78,8 @@ ALBUM_GENRE_OVERRIDES = {
     "Nine Inch Nails/Ghosts I-IV": "Ambient",
     # No release-group genre in MB; the artist fallback yields "Latin Rock".
     "Santana/Supernatural": "Rock",
+    # No genre votes on the release group or the artist, so nothing to derive.
+    "Spring Creek/Hold on Me": "Bluegrass",
 }
 
 

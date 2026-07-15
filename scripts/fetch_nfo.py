@@ -62,6 +62,7 @@ AUDIO_GLOBS = ["*.flac", "*.mp3", "*.m4a", "*.ogg", "*.opus"]
 # Only affects the artist.nfo genre; album/track genres stay data-derived.
 ARTIST_GENRE_OVERRIDES = {
     "b7ffd2af-418f-4be2-bdd1-22f8b48613da": "Industrial",  # Nine Inch Nails
+    "927822db-763a-43d9-9159-6d168bac4b7f": "Bluegrass",   # Spring Creek (no MB genre votes)
 }
 
 # Hand-picked album genres (relative "Artist/Album" folder path -> genre) for the
@@ -70,6 +71,7 @@ ARTIST_GENRE_OVERRIDES = {
 ALBUM_GENRE_OVERRIDES = {
     "Nine Inch Nails/Ghosts I-IV": "Ambient",   # MB top vote is industrial (9) vs ambient (8)
     "Santana/Supernatural": "Rock",             # no release-group genre; artist fallback gives Latin Rock
+    "Spring Creek/Hold on Me": "Bluegrass",     # no genre votes on the release group or the artist
 }
 
 
