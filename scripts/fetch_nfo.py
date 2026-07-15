@@ -55,6 +55,15 @@ MB_BASE = "https://musicbrainz.org/ws/2"
 MB_USER_AGENT = "music-curation/1.0 (tristan@havelick.com)"
 AUDIO_GLOBS = ["*.flac", "*.mp3", "*.m4a", "*.ogg", "*.opus"]
 
+# Hand-picked artist genres (keyed by MusicBrainz artist ID) that override the
+# derived MusicBrainz genre. Use when an artist's catalog skews the automatic
+# pick misleadingly -- e.g. Nine Inch Nails' many instrumental Ghosts tracks make
+# "ambient" dominate by track count, but the artist's identity is industrial.
+# Only affects the artist.nfo genre; album/track genres stay data-derived.
+ARTIST_GENRE_OVERRIDES = {
+    "b7ffd2af-418f-4be2-bdd1-22f8b48613da": "Industrial",  # Nine Inch Nails
+}
+
 
 def album_audio_files(album_dir: Path):
     """All audio files in an album, including tracks under Disc N/ subfolders."""
@@ -275,7 +284,7 @@ def process_artist(artist_dir: Path, api_key: str, lang: str, overwrite: bool, d
     add(root, "musicBrainzArtistID", mbid)
     add(root, "biography", paragraphs(biography_field(a, lang)))
     add(root, "formed", a.get("intFormedYear"))
-    add(root, "genre", mb_top_genre("artist", mbid))
+    add(root, "genre", ARTIST_GENRE_OVERRIDES.get(mbid) or mb_top_genre("artist", mbid))
     add(root, "style", a.get("strStyle"))
     add(root, "mood", a.get("strMood"))
     write_nfo(root, nfo_path, dry_run)
