@@ -139,51 +139,66 @@ Repair Info:
 
 If tracks you know are fine show `[Unmatched]`, the alignment is still wrong — fix that before repairing. `--target` selects the entry by CRC; omit it to use the highest-confidence entry.
 
-## Splicing the track back
+## Splicing the tracks back
 
-Repair emits a single whole-disc WAV, so extract the repaired track yourself. The entry's `toc=` gives its sector range; multiply by 588 for samples:
+Repair emits a single whole-disc WAV covering every track, damaged or not, so extract the repaired tracks yourself. The entry's `toc=` gives each track's sector range, and a sector is 588 stereo samples — so track *i* spans samples `toc[i-1] * 588` to `toc[i] * 588`.
+
+**Splice into a copy, not your library.** Symlink the undamaged tracks, write the repaired ones alongside, and verify that directory before anything is overwritten:
 
 ```bash
-# track 5 spans sectors 82375..96725
+# track 5 spans sectors 82375..96725 -> samples 48436500..56874300
 ffmpeg -i album_repaired.wav -af "atrim=start_sample=48436500:end_sample=56874300" \
-  -c:a flac -compression_level 8 -sample_fmt s16 track05.flac
+  -c:a flac -compression_level 8 -sample_fmt s16 "copy/05 Track.flac"
+
+scripts/ctdb_align.py copy/      # must report: rip already matches CTDB
 ```
 
-Then carry the tags over, minus ReplayGain (it must be recomputed):
+That check is the whole safety net, and it's worth more than it looks: it re-derives the TOC from scratch and compares every track against CTDB, so an off-by-one in the sector math shows up as unmatched tracks instead of silently corrupting a track that was only slightly damaged. Don't install until the copy comes back clean.
+
+Only then carry the tags over, minus ReplayGain (which must be recomputed), and install:
 
 ```bash
 metaflac --export-tags-to=- "$ORIGINAL" | grep -v "^REPLAYGAIN_" > tags.txt
-metaflac --remove-all-tags --import-tags-from=tags.txt track05.flac
-```
-
-Install it, recompute gain across the whole album, and confirm:
-
-```bash
-metaflac --add-replay-gain *.flac
+metaflac --remove-all-tags --import-tags-from=tags.txt "copy/05 Track.flac"
+cp "copy/05 Track.flac" "$ORIGINAL"          # back the original up first
+metaflac --add-replay-gain *.flac            # album gain spans all tracks
 scripts/verify_rips.py ~/Music/curated/"Artist"/"Album"
 ```
 
-## Prove the splice before overwriting anything
+### Don't verify the splice by comparing CRC32 to `Remote=`
 
-Back up the original first. Then extract the **current, known-bad** track and check its CRC32 against the `Local=` value `verify` printed. If your extraction reproduces the bad CRC, it will reproduce the good one — so check the repaired extract against `Remote=`:
+It's tempting to check your extracted track's CRC32 against the `Remote=` value `verify` printed. **That only works when the entry says `Offset: 0`.**
 
-```bash
-ffmpeg -v error -i track.flac -f s16le -ac 2 -ar 44100 - | python3 -c \
-  "import sys,zlib; print('%08x' % (zlib.crc32(sys.stdin.buffer.read()) & 0xffffffff))"
+```
+Conf: 1872, CRC: cbdb0832, Offset: -6
+  Track 02: Local=4d362a45 Remote=4d362a45 [Matched]
 ```
 
-This is the whole safety net: it catches an off-by-one in the sector math before it silently corrupts a track that was only slightly damaged.
+Here CTDB matched the disc at a **-6 sample read offset**, so the `Local=`/`Remote=` CRCs are computed over offset-shifted audio and will never equal a plain CRC32 of the file — track 02 is `[Matched]`, yet its file's CRC32 is `81b28a81`, nothing like `4d362a45`. Comparing them makes a perfectly good repair look broken. Verify the spliced copy with `ctdb_align.py` instead; it handles the offset.
 
-## Worked example
+## Worked examples
 
-Pet Shop Boys / *Nightlife* (US, Sire 31086-2), track 5 — `Differs in 31 samples @01:38:46`:
+**Pet Shop Boys / *Nightlife*** (US, Sire 31086-2), track 5 — `Differs in 31 samples @01:38:46`. Found the hard way, before `ctdb_align.py` existed:
 
 | Step | Result |
 |---|---|
 | Naive cue (track 1 @ sector 0) | `disk not present in database` |
 | `PREGAP 00:00:32` | TOC right, audio padded — all 12 tracks `[Unmatched]` |
 | Prepend 18816 samples + `INDEX 00`/`01` | 11/12 `[Matched]`, `CanRecover: True` |
-| `repair --target 63a5853b` | 28 stereo frames changed; track 5 CRC `db6cece3` → `36194aaa` |
+| `repair --target 63a5853b` | 28 stereo frames changed |
 | `verify_rips.py` | `DIFFERS` → `[OK*] CTDB 12/12 conf 255` |
 
-The disc was never in AccurateRip at all; the entire repair ran on CTDB.
+The disc was never in AccurateRip at all; the whole repair ran on CTDB.
+
+**Nine Inch Nails / *Pretty Hate Machine*** — 4 damaged tracks (1, 3, 4, 10), worst 3566 samples (81ms) scattered over four minutes:
+
+| Step | Result |
+|---|---|
+| `ctdb_align.py` | shift 32 sectors, 3718 correctable, `CanRecover: True` |
+| `repair --target cbdb0832` | one pass fixes all four tracks |
+| Splice into a copy, `ctdb_align.py copy/` | 10/10 matched — safe to install |
+| `verify_rips.py` | `DIFFERS` → `[OK*] AccurateRip 10/10, CTDB 10/10 conf 1934` |
+
+3718 is the sum of all four tracks' damage — repair is whole-disc, so one pass covers the album. This entry matched at `Offset: -6`, which is what makes the CRC32-vs-`Remote=` check useless here.
+
+Damage size is a poor guide to repairability: 31 samples and 3718 samples were both `CanRecover: True`. Run `ctdb_align.py` and let it answer.
