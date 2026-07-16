@@ -4,9 +4,11 @@ When [`verify_rips.py`](../README.md#verifying-rips-accuraterip) reports `DIFFER
 
 Read [What to actually worry about](../README.md#what-to-actually-worry-about) first. Most `DIFFERS` results are sub-millisecond and inaudible — **listen before you repair.** This page is for the rare case where you've listened, it's bad, and re-ripping isn't an option.
 
-This is a manual path. `scripts/ctdb-cli.sh` only wraps the tool — building the cue and splicing the repaired track back in are hand work, and the setup is heavier than anything else in this repo.
+[`scripts/ctdb_repair.py`](../scripts/ctdb_repair.py) drives the whole thing — see [Usage](#usage). The rest of this page is what it does and why, which is worth reading when it reports something odd, or if you're doing it by hand.
 
 **CTDB only.** AccurateRip stores no parity, so a disc reported `disk not present in database` on the AccurateRip line can still be repairable via CTDB — the two databases are independent.
+
+The one-time setup is heavier than anything else in this repo: it needs the .NET 10 SDK and a source build.
 
 ## Tooling
 
@@ -39,7 +41,48 @@ Two traps worth knowing, both already handled by the wrapper:
 
 Overrides: `CTDB_CLI_DLL` (path to `ctdb-cli.dll`), `DOTNET_BIN` (path to `dotnet`).
 
+## Usage
+
+Check first — this writes nothing:
+
+```bash
+scripts/ctdb_repair.py ~/Music/curated/"Nine Inch Nails"/"Pretty Hate Machine"
+```
+```
+Pretty Hate Machine  (10 tracks)
+  best entry: confidence 1872, crc32 cbdb0832, hasparity=True
+  TOC shift: 32 sectors (18816 samples)
+  tracks: 6 matched, 4 unmatched
+    track 01: local 53297e71 != remote 313c1ad8
+    ...
+  correctable errors: 3718
+  CanRecover: True
+
+  repair with:
+    scripts/ctdb_repair.py --apply "/Users/tristan/Music/curated/Nine Inch Nails/Pretty Hate Machine"
+```
+
+`CanRecover: True` means CTDB has enough parity to reconstruct the damage. Then:
+
+```bash
+scripts/ctdb_repair.py --apply ALBUM
+```
+
+`--apply` repairs the disc, cuts the damaged tracks back out, splices them into a **copy**, and verifies that copy against CTDB. Only if the copy comes back clean does it back up the originals, carry the tags across, install, and recompute ReplayGain across the album. If the copy doesn't verify, it refuses to install and nothing is touched.
+
+Originals go to `$MUSIC_DIR/.ctdb-backups/<artist>/<album>/` — outside `curated/`, so a library sync won't pick them up. Override with `--backup DIR`, and keep the intermediates (including the repaired WAV) with `--work DIR`.
+
+Repair is **whole-disc**: an album with four damaged tracks is one pass, not four.
+
+Afterwards, confirm through the normal path:
+
+```bash
+scripts/verify_rips.py ~/Music/curated/"Nine Inch Nails"/"Pretty Hate Machine"
+```
+
 ## Building the cue
+
+> Everything from here down is what `ctdb_repair.py` does internally, and how to do it by hand if you need to. Skip it unless the tool reports something odd.
 
 Everything below works off a cue sheet describing the disc. CTDB identifies a disc by its **TOC**, which is reconstructed from the cue — so the cue is what has to be right (see the next section). Work on a copy, not your library: the album directory should stay clean.
 
@@ -60,23 +103,7 @@ FILE "02 Closer to Heaven.flac" WAVE
 
 ## The gotcha: the cue's TOC must match the disc exactly
 
-> **[`scripts/ctdb_align.py`](../scripts/ctdb_align.py) does all of this for you** — it builds the cue, works out the shift, and reports whether CTDB can repair the album:
->
-> ```bash
-> scripts/ctdb_align.py ~/Music/curated/"Nine Inch Nails"/"Pretty Hate Machine"
-> ```
-> ```
-> Pretty Hate Machine  (10 tracks)
->   best entry: confidence 1872, crc32 cbdb0832, hasparity=True
->   TOC shift: 32 sectors (18816 samples)
->   tracks: 6 matched, 4 unmatched
->     track 01: local 53297e71 != remote 313c1ad8
->     ...
->   correctable errors: 3718
->   CanRecover: True
-> ```
->
-> Pass `--work DIR` to keep the aligned cue, which is the input to `repair`. The rest of this section is what it's doing and why — worth reading when it reports something odd.
+This is the part `ctdb_repair.py` exists to handle, and the part that will waste your afternoon if you do it by hand.
 
 If the cue's TOC doesn't match, `verify` reports `disk not present in database` — even when the disc is right there with hundreds of submissions. It fails **silently and misleadingly**, so suspect this first.
 
@@ -150,7 +177,7 @@ Repair emits a single whole-disc WAV covering every track, damaged or not, so ex
 ffmpeg -i album_repaired.wav -af "atrim=start_sample=48436500:end_sample=56874300" \
   -c:a flac -compression_level 8 -sample_fmt s16 "copy/05 Track.flac"
 
-scripts/ctdb_align.py copy/      # must report: rip already matches CTDB
+scripts/ctdb_repair.py copy/      # must report: rip already matches CTDB
 ```
 
 That check is the whole safety net, and it's worth more than it looks: it re-derives the TOC from scratch and compares every track against CTDB, so an off-by-one in the sector math shows up as unmatched tracks instead of silently corrupting a track that was only slightly damaged. Don't install until the copy comes back clean.
@@ -174,11 +201,11 @@ Conf: 1872, CRC: cbdb0832, Offset: -6
   Track 02: Local=4d362a45 Remote=4d362a45 [Matched]
 ```
 
-Here CTDB matched the disc at a **-6 sample read offset**, so the `Local=`/`Remote=` CRCs are computed over offset-shifted audio and will never equal a plain CRC32 of the file — track 02 is `[Matched]`, yet its file's CRC32 is `81b28a81`, nothing like `4d362a45`. Comparing them makes a perfectly good repair look broken. Verify the spliced copy with `ctdb_align.py` instead; it handles the offset.
+Here CTDB matched the disc at a **-6 sample read offset**, so the `Local=`/`Remote=` CRCs are computed over offset-shifted audio and will never equal a plain CRC32 of the file — track 02 is `[Matched]`, yet its file's CRC32 is `81b28a81`, nothing like `4d362a45`. Comparing them makes a perfectly good repair look broken. Verify the spliced copy with `ctdb_repair.py` instead; it handles the offset.
 
 ## Worked examples
 
-**Pet Shop Boys / *Nightlife*** (US, Sire 31086-2), track 5 — `Differs in 31 samples @01:38:46`. Found the hard way, before `ctdb_align.py` existed:
+**Pet Shop Boys / *Nightlife*** (US, Sire 31086-2), track 5 — `Differs in 31 samples @01:38:46`. Found the hard way, before `ctdb_repair.py` existed:
 
 | Step | Result |
 |---|---|
@@ -194,11 +221,11 @@ The disc was never in AccurateRip at all; the whole repair ran on CTDB.
 
 | Step | Result |
 |---|---|
-| `ctdb_align.py` | shift 32 sectors, 3718 correctable, `CanRecover: True` |
+| `ctdb_repair.py` | shift 32 sectors, 3718 correctable, `CanRecover: True` |
 | `repair --target cbdb0832` | one pass fixes all four tracks |
-| Splice into a copy, `ctdb_align.py copy/` | 10/10 matched — safe to install |
+| Splice into a copy, `ctdb_repair.py copy/` | 10/10 matched — safe to install |
 | `verify_rips.py` | `DIFFERS` → `[OK*] AccurateRip 10/10, CTDB 10/10 conf 1934` |
 
 3718 is the sum of all four tracks' damage — repair is whole-disc, so one pass covers the album. This entry matched at `Offset: -6`, which is what makes the CRC32-vs-`Remote=` check useless here.
 
-Damage size is a poor guide to repairability: 31 samples and 3718 samples were both `CanRecover: True`. Run `ctdb_align.py` and let it answer.
+Damage size is a poor guide to repairability: 31 samples and 3718 samples were both `CanRecover: True`. Run `ctdb_repair.py` and let it answer.
