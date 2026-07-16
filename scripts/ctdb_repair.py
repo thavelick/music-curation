@@ -75,10 +75,18 @@ PADDING_RE = re.compile(r"Padding (\d+) samples")
 
 
 def track_sorted(flacs):
-    """Order FLACs by leading track number, not lexically."""
+    """Order FLACs by track, for the cue -- so this must match the disc order.
+
+    Prefer a leading track number ("05 Title.flac"), since lexical order breaks
+    once a disc reaches track 10. Fall back to the name when there's no leading
+    number: not every album here is named that way ("Artist - Album - 05 -
+    Title.flac"), and a constant prefix with padded numbers sorts correctly.
+    Getting this wrong is silent -- the cue's TOC comes out wrong and CTDB just
+    says the disc isn't in the database.
+    """
     def key(p):
         m = re.match(r"(\d+)", p.name)
-        return int(m.group(1)) if m else 0
+        return (int(m.group(1)) if m else 0, p.name)
     return sorted(flacs, key=key)
 
 
