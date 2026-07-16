@@ -45,6 +45,10 @@ DEFAULT_ROOT = MUSIC_DIR / "curated"
 DEFAULT_ARCUE = MUSIC_DIR / "tools" / "CUETools_2.2.6" / "CUETools.ARCUE.exe"
 CUE_NAME = ".verify_rips.cue"  # temp cue written into each album dir, then removed
 MIN_AR_SUBMISSIONS = 2  # fewer AccurateRip submissions than this is not a reliable reference
+# CTDB confidence below which "some people match us" is noise rather than evidence
+# of a real pressing. A track where only 1-2 rips agree with ours while hundreds
+# disagree is a damaged rip; one where 181 agree is a second pressing.
+MIN_CTDB_VARIANT = 10
 
 # A track line in an AccurateRip offset block, e.g.
 #  " 01     [ba7ff2f8] (130/440) Accurately ripped"
@@ -56,7 +60,13 @@ AR_OFFSET_RE = re.compile(r"^Offsetted by (-?\d+):")
 # A per-track CTDB result line (non-verbose ARCUE), e.g.
 #  "  5   | (1157/1180) Accurately ripped"
 #  "  1   | (903/1180) Accurately ripped, or (230/1180) differs in 261 samples @..."
-CTDB_TRACK_RE = re.compile(r"^\s*(\d+)\s*\|\s*\((\d+)/(\d+)\)\s+Accurately ripped")
+#  " 29   | (  1/389) Accurately ripped, or (339/389) differs in 43 samples @..."
+#  "  5   | (250/261) Differs in 31 samples @01:38:46"
+# ARCUE right-aligns the counts, so they can carry leading spaces ("(  1/389)").
+CTDB_TRACK_RE = re.compile(r"^\s*(\d+)\s*\|\s*(.+)$")
+# Confidence of the entry that matches *us*, and of any entries that don't.
+CTDB_ACC_RE = re.compile(r"\(\s*(\d+)/\s*(\d+)\)\s+Accurately ripped")
+CTDB_DIFF_RE = re.compile(r"\(\s*(\d+)/\s*(\d+)\)\s+[Dd]iffers in \d+ samples?")
 
 
 def find_units(paths):
@@ -114,14 +124,26 @@ def parse_arcue(output, n_tracks):
 
     # --- CTDB (CUETools database; normalizes read offset internally) ---
     ctdb_found = any("CTDB TOCID" in l and "found" in l and "not found" not in l for l in ctdb_lines)
-    ctdb_ok = set()        # track numbers reported "Accurately ripped"
+    ctdb_ok = set()        # track numbers our rip matches, and isn't outvoted on
     ctdb_minconf = None
     for l in ctdb_lines:
         m = CTDB_TRACK_RE.match(l)
-        if m:
-            track, conf = int(m.group(1)), int(m.group(2))
-            ctdb_ok.add(track)
-            ctdb_minconf = conf if ctdb_minconf is None else min(ctdb_minconf, conf)
+        if not m:
+            continue
+        track, rest = int(m.group(1)), m.group(2)
+        acc = CTDB_ACC_RE.search(rest)
+        if not acc:
+            continue  # "Differs in N samples": nothing in CTDB matches us at all
+        conf = int(acc.group(1))
+        # A line can offer alternatives ("..., or (339/389) differs in 43 samples"):
+        # entries holding audio unlike ours. Being outvoted only means we are
+        # damaged if hardly anyone shares our audio -- if hundreds do, the disc
+        # simply has more than one pressing and ours is a legitimate one.
+        rival = max((int(c) for c, _ in CTDB_DIFF_RE.findall(rest)), default=0)
+        if rival > conf and conf < MIN_CTDB_VARIANT:
+            continue
+        ctdb_ok.add(track)
+        ctdb_minconf = conf if ctdb_minconf is None else min(ctdb_minconf, conf)
     ctdb_full = n_tracks > 0 and len(ctdb_ok) == n_tracks
 
     # --- AccurateRip (matched per read offset) ---
