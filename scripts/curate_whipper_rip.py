@@ -343,7 +343,6 @@ def split_artist_album(rip_path):
 
 
 def pull_rip(rip_host, rip_path, album_dir):
-    album_dir.parent.mkdir(parents=True, exist_ok=True)
     album_dir.mkdir(parents=True, exist_ok=True)
     remote = f"{rip_host}:{REMOTE_RIP_DIR}/{rip_path}/"
     cmd = ["rsync", "-av", remote, f"{album_dir}/"]
