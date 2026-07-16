@@ -45,10 +45,6 @@ DEFAULT_ROOT = MUSIC_DIR / "curated"
 DEFAULT_ARCUE = MUSIC_DIR / "tools" / "CUETools_2.2.6" / "CUETools.ARCUE.exe"
 CUE_NAME = ".verify_rips.cue"  # temp cue written into each album dir, then removed
 MIN_AR_SUBMISSIONS = 2  # fewer AccurateRip submissions than this is not a reliable reference
-# CTDB confidence below which "some people match us" is noise rather than evidence
-# of a real pressing. A track where only 1-2 rips agree with ours while hundreds
-# disagree is a damaged rip; one where 181 agree is a second pressing.
-MIN_CTDB_VARIANT = 10
 
 # A track line in an AccurateRip offset block, e.g.
 #  " 01     [ba7ff2f8] (130/440) Accurately ripped"
@@ -136,11 +132,17 @@ def parse_arcue(output, n_tracks):
             continue  # "Differs in N samples": nothing in CTDB matches us at all
         conf = int(acc.group(1))
         # A line can offer alternatives ("..., or (339/389) differs in 43 samples"):
-        # entries holding audio unlike ours. Being outvoted only means we are
-        # damaged if hardly anyone shares our audio -- if hundreds do, the disc
-        # simply has more than one pressing and ours is a legitimate one.
+        # entries holding audio unlike ours. If more rips disagree with us than
+        # agree, say so -- CTDB keys on the TOC, and a genuinely different
+        # pressing has a different TOC and so is a different disc entirely. Rival
+        # entries under one TOC are therefore always other *rips* of this disc,
+        # never another master, so being outvoted means someone's rip is wrong.
+        #
+        # Don't be tempted to excuse a well-supported minority as a variant: the
+        # counts are submissions, not independent rips, and a widely shared file
+        # carries its errors into every copy's submission.
         rival = max((int(c) for c, _ in CTDB_DIFF_RE.findall(rest)), default=0)
-        if rival > conf and conf < MIN_CTDB_VARIANT:
+        if rival > conf:
             continue
         ctdb_ok.add(track)
         ctdb_minconf = conf if ctdb_minconf is None else min(ctdb_minconf, conf)
