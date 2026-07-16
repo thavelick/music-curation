@@ -2,18 +2,6 @@
 
 This guide explains how to properly organize, tag, and prepare music files for the curated music library.
 
-## Table of Contents
-
-1. [Overview](#overview)
-2. [Configuration](#configuration)
-3. [Ripping CDs](#ripping-cds)
-4. [Verifying Rips (AccurateRip)](#verifying-rips-accuraterip)
-5. [Directory Structure](#directory-structure)
-6. [Quality Standards](#quality-standards)
-7. [Processing Workflow](#processing-workflow)
-8. [Common Tasks](#common-tasks)
-9. [Helper Scripts](#helper-scripts)
-
 ## Overview
 
 This repository holds the helper scripts and the guide I use to curate my music library: a high-quality, properly tagged collection with complete metadata and artwork. The goal is to have the best available quality for each album, organized consistently so it works seamlessly with Jellyfin and other media servers that expect an Artist/Album folder structure.
@@ -300,10 +288,17 @@ AccurateRip verifies **bit-perfect archival correctness — not audible quality.
 **Decision guide for a genuine `DIFFERS`:**
 1. **Listen** at the timestamps. Hear nothing? → leave it; it's an archival-only blemish, not a quality problem.
 2. Hear a click/dropout? → **clean the disc and re-rip with [whipper](#accurate-ripping-with-whipper-when-bit-perfect-matters)** (it reports per-track whether you recovered it). For scratches, polish first, then re-rip.
-3. Disc physically unrecoverable? → **obtain a replacement copy of the same pressing** (match the TOC; verify the replacement with this same tool — `verify_rips.py /path/to/copy`) and splice in just the bad tracks.
-4. Most of the time, step 1 ends it.
+3. Can't re-rip, or the re-rip differs the same way? → if CTDB has parity for the disc, you can **reconstruct the bad samples from other people's rips** — no disc needed. See [Repairing from CTDB parity](#repairing-from-ctdb-parity).
+4. Disc physically unrecoverable? → **obtain a replacement copy of the same pressing** (match the TOC; verify the replacement with this same tool — `verify_rips.py /path/to/copy`) and splice in just the bad tracks.
+5. Most of the time, step 1 ends it.
 
 **Bottom line:** verification protects the archive's integrity, not your listening experience. Run it, fix the genuinely-audible cases, and don't lose sleep over the rest.
+
+### Repairing from CTDB parity
+
+For the rare `DIFFERS` that's genuinely audible and can't be re-ripped, CTDB entries carry Reed-Solomon parity, so the bad samples can often be **reconstructed from other people's rips** — no disc required. It's a manual path with a heavier setup than the rest of this repo (.NET 10 plus a source build of [`ctdb-cli`](https://github.com/Masterisk-F/ctdb-cli)), and it works even when the disc isn't in AccurateRip at all.
+
+See **[docs/ctdb-repair.md](docs/ctdb-repair.md)** for setup, the TOC-alignment gotcha that makes it silently report `disk not present in database`, and a worked example.
 
 ## Directory Structure
 
@@ -864,6 +859,7 @@ live in `rip/`.
 ### Quality Checks
 - `get_runtime.py` — Calculate total runtime of audio files in a directory
 - `verify_rips.py` — Verify rips against AccurateRip/CTDB (see [Verifying Rips](#verifying-rips-accuraterip))
+- `ctdb-cli.sh` — Wrapper around `ctdb-cli`, for repairing a `DIFFERS` rip from CTDB parity. Needs a one-time source build (see [docs/ctdb-repair.md](docs/ctdb-repair.md))
 - `curate_whipper_rip.py` — Automate the whole post-whipper curation flow: pull, rename, tag, verify, and sync (see [Accurate ripping with whipper](#accurate-ripping-with-whipper-when-bit-perfect-matters))
 
 ### Syncing
