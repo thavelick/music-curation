@@ -859,6 +859,7 @@ live in `rip/`.
 ### Quality Checks
 - `get_runtime.py` — Calculate total runtime of audio files in a directory
 - `verify_rips.py` — Verify rips against AccurateRip/CTDB (see [Verifying Rips](#verifying-rips-accuraterip))
+- `ctdb_align.py` — Build a TOC-aligned cue for an album and report whether CTDB can repair it (see [docs/ctdb-repair.md](docs/ctdb-repair.md))
 - `ctdb-cli.sh` — Wrapper around `ctdb-cli`, for repairing a `DIFFERS` rip from CTDB parity. Needs a one-time source build (see [docs/ctdb-repair.md](docs/ctdb-repair.md))
 - `curate_whipper_rip.py` — Automate the whole post-whipper curation flow: pull, rename, tag, verify, and sync (see [Accurate ripping with whipper](#accurate-ripping-with-whipper-when-bit-perfect-matters))
 

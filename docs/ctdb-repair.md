@@ -60,7 +60,25 @@ FILE "02 Closer to Heaven.flac" WAVE
 
 ## The gotcha: the cue's TOC must match the disc exactly
 
-If it doesn't, `verify` reports `disk not present in database` — even when the disc is right there with hundreds of submissions. It fails **silently and misleadingly**, so suspect this first.
+> **[`scripts/ctdb_align.py`](../scripts/ctdb_align.py) does all of this for you** — it builds the cue, works out the shift, and reports whether CTDB can repair the album:
+>
+> ```bash
+> scripts/ctdb_align.py ~/Music/curated/"Nine Inch Nails"/"Pretty Hate Machine"
+> ```
+> ```
+> Pretty Hate Machine  (10 tracks)
+>   best entry: confidence 1872, crc32 cbdb0832, hasparity=True
+>   TOC shift: 32 sectors (18816 samples)
+>   tracks: 6 matched, 4 unmatched
+>     track 01: local 53297e71 != remote 313c1ad8
+>     ...
+>   correctable errors: 3718
+>   CanRecover: True
+> ```
+>
+> Pass `--work DIR` to keep the aligned cue, which is the input to `repair`. The rest of this section is what it's doing and why — worth reading when it reports something odd.
+
+If the cue's TOC doesn't match, `verify` reports `disk not present in database` — even when the disc is right there with hundreds of submissions. It fails **silently and misleadingly**, so suspect this first.
 
 The trap is that not every disc starts track 1 at sector 0, and a naive one-file-per-track cue assumes it does. Pet Shop Boys' *Nightlife* starts at 32 — whipper's log says `Start sector: 32`, and MusicBrainz carries both a 150- and a 182-offset disc ID for it.
 
