@@ -11,10 +11,10 @@ Why this works without the original disc: AccurateRip identifies a disc by its
 track layout, which is recoverable from the FLAC sample counts. No cue/log from
 the original rip is needed.
 
-Read offset: abcde/cdparanoia do not apply a drive read-offset correction, so a
-perfectly good rip often matches AccurateRip only at a small nonzero offset
-(e.g. +6 samples). That still confirms the audio is correct; the offset is
-reported so you can see it.
+Read offset: a rip made without drive read-offset correction is still perfectly
+good, but matches AccurateRip only at a small nonzero offset (e.g. +6 samples,
+the drive's own offset). That still confirms the audio is correct; the offset is
+reported so you can see it. whipper corrects the offset, so its rips match at 0.
 
 Prerequisites:
   - mono           (Arch: sudo pacman -S mono)
@@ -191,7 +191,7 @@ def verdict(r):
 
     An album passes if either database confirms all tracks. AccurateRip matching
     only at a nonzero offset (OK*) still means the audio is correct -- it just
-    reflects an uncorrected drive read offset, which is normal for abcde rips.
+    reflects a rip made without drive read-offset correction.
     """
     n = r["n_tracks"]
     ar_full = r["ar_offset"] is not None

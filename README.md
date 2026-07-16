@@ -36,49 +36,11 @@ Scripts and workflow commands are parameterized by environment variables so ther
 
 ## Ripping CDs
 
-CDs are ripped on the machine with the optical drive (referenced here via the `$RIP_HOST` SSH alias), using [`abcde`](https://abcde.einval.com/) (A Better CD Encoder). SSH in first, then run the rip there:
+CDs are ripped with [whipper](https://github.com/whipper-team/whipper), on the machine with the optical drive (referenced here via the `$RIP_HOST` SSH alias).
 
-```bash
-ssh "$RIP_HOST"
-```
+whipper drives `cdparanoia` underneath, but adds what matters for an archive: it **verifies each track against AccurateRip as it rips**, **corrects the drive read offset** (good rips then match at offset 0), **retries** unreadable tracks, and writes a per-track log. So you learn a disc read badly while it's still in the drive, instead of months later.
 
-The toolchain (`abcde`, `cdparanoia`, `musicbrainz`, `flac`, `glyr`, etc.) needs to be installed on that machine (e.g. via Homebrew, which is what the bundled config's paths assume).
-
-### Ripping a Disc
-
-Insert a CD and run:
-
-```bash
-abcde
-```
-
-That's it — all behavior is driven by `~/.abcde.conf` (below). `abcde` looks up the disc in MusicBrainz, rips each track to FLAC with `cd-paranoia`, fetches and embeds album art, applies ReplayGain, tags `ALBUMARTIST`, fetches an artist photo, and ejects the disc when done. Output lands directly in `~/Music/` in the `Artist/Album/NN Track Name.flac` layout this guide expects.
-
-To edit metadata interactively before the rip starts:
-
-```bash
-EDITOR=vim abcde
-```
-
-### `abcde` configuration
-
-The configuration that produces the curated layout automatically lives in this repo at [`rip/abcde.conf`](rip/abcde.conf). Deploy it to `~/.abcde.conf` on the rip host:
-
-```bash
-scp rip/abcde.conf "$RIP_HOST":~/.abcde.conf
-```
-
-It sets the `Artist/Album/NN Track Name.flac` output format, keeps spaces in filenames, fetches and embeds album art, applies ReplayGain, and runs a `post_encode` hook that grabs an artist photo (`folder.jpg`), fixes up the album art, and tags `ALBUMARTIST`. The `FLAC` and `glyrc` paths in it point at a Homebrew install — adjust them for your setup.
-
-### After Ripping
-
-Freshly ripped albums land in `~/Music/` on the rip host already in the right structure with art and tags. From there, follow the [Processing Workflow](#processing-workflow) below to verify quality/metadata and move them into `curated/` (or `classical/`) before [syncing to Jellyfin](#syncing-to-jellyfin-server).
-
-### Accurate ripping with whipper (when bit-perfect matters)
-
-`abcde` is the default — fast and fine for everyday ripping. But it does **best-effort** extraction with **no verification** and **no read-offset correction**, so its rips land as `OK*` (see [Verifying Rips](#verifying-rips-accuraterip)) and you only discover read errors later. When you want a **bit-perfect, AccurateRip-verified** rip — or you're re-ripping a scratched disc and want to *know* whether you recovered it — use [whipper](https://github.com/whipper-team/whipper).
-
-whipper drives the same `cdparanoia` underneath (so it's no better at clawing data off a damaged disc), but it adds what matters: it **verifies each track against AccurateRip as it rips**, **corrects the drive read offset** (good rips then match at offset 0), **retries** unreadable tracks, and writes a per-track log.
+### Accurate ripping with whipper
 
 **Setup:** whipper has fiddly native deps, so it runs from its **official container** via **rootful** podman — rootless podman can't reach the optical drive through the user-namespace mapping. This relies on passwordless `sudo podman` (a rule in `/etc/sudoers.d/podman-nopasswd`). The wrapper script [`rip/rip-cd.sh`](rip/rip-cd.sh) reads the drive's read offset from `$RIP_OFFSET` — find yours once with `whipper offset find` against a disc that's in AccurateRip. Deploy the wrapper to the rip host, e.g.:
 
@@ -117,7 +79,7 @@ rsync -av "$RIP_HOST:whipper/out/album/Artist - Album/" \
 
 (Swap `album` for whatever release-type dir the rip actually landed in — `live`, `ep`, ….)
 
-**Then curate.** Unlike abcde, a whipper rip lands unnamed/undertagged, so before the [Processing Workflow](#processing-workflow) fix these up:
+**Then curate.** A whipper rip lands unnamed/undertagged, so before the [Processing Workflow](#processing-workflow) fix these up:
 
 - **Rename** `NN. Artist - Title.flac` → `NN Title.flac` (the library layout).
 - **DATE** → `YYYY` (whipper writes e.g. `2007-11`).
@@ -135,7 +97,7 @@ It searches **every** release-type dir under `~/whipper/out/`, so it finds a `li
 
 It only syncs to Jellyfin automatically when **all** of these hold: every track's AccurateRip verdict in the whipper log was a verified match (and no `RESCUED-TRACKS.txt`), [`verify_rips.py`](#verifying-rips-accuraterip) confirms `OK`/`OK*`, and a genre was found in MusicBrainz (the release group's top-voted genre, falling back to the artist's — the same source [`fetch_nfo.py`](#getting-nfo-metadata) uses, but looked up independently, so a `fetch_nfo.py` failure doesn't by itself block the sync). Otherwise it still curates the album but prints exactly which gate(s) failed and skips the sync. It aborts to manual curation for a rip folder that looks like one disc of a [multi-disc set](#multi-disc-albums), or if the destination album folder already exists (in which case, investigate and resume with the individual scripts). A disc with [no MusicBrainz match at all](#discs-musicbrainz-doesnt-know---unknown) is curated as far as it can go without metadata, then staged in `incoming/` for hand-tagging.
 
-**Tradeoffs:** whipper is noticeably **slower** than abcde (a one-time subchannel scan + careful per-track extraction) and interactive. Use it when verification matters; use abcde for everyday speed.
+**Speed:** whipper is deliberately slow — a one-time subchannel scan plus careful per-track extraction — and it's interactive. That's the price of a verified rip.
 
 #### Recovering skipped tracks
 
@@ -185,48 +147,9 @@ Note that `unknown/` means whipper found **no release *type***, which isn't quit
 - The read offset is specific to **your drive**. Find it once with `whipper offset find` (against a disc that's in AccurateRip) and set `RIP_OFFSET`.
 - Volume mounts need the `:Z` SELinux label or whipper can't write to `/output`.
 
-### Troubleshooting: `abcde` MusicBrainz lookup fails
-
-If `abcde` aborts before ripping with an error like:
-
-```
-Can't locate MusicBrainz/DiscID.pm in @INC ...
-[ERROR] abcde: abcde-musicbrainz-tool failed to run; ABORT
-```
-
-the `MusicBrainz::DiscID` Perl module isn't available to the Perl that `abcde` uses. This recurs after a `brew upgrade` that bumps Perl, because the module is tied to a specific Perl version. Key gotcha: your shell's `perl`/`cpan` is the **system** Perl (`/usr/...`), but `abcde` runs under **brew** Perl — so a plain `cpan install` goes to the wrong interpreter and `abcde` never sees it.
-
-Reinstall the module against **brew Perl**, with `libdiscid` discoverable by `pkg-config`:
-
-```bash
-eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-export PKG_CONFIG_PATH=/home/linuxbrew/.linuxbrew/lib/pkgconfig
-export PERL_MM_USE_DEFAULT=1
-/home/linuxbrew/.linuxbrew/opt/perl/bin/cpan -i MusicBrainz::DiscID
-/home/linuxbrew/.linuxbrew/opt/perl/bin/cpan -T WebService::MusicBrainz   # -T skips its network-only tests
-```
-
-If the `MusicBrainz::DiscID` build fails with `Unparseable XSUB parameter: 'offsets ...'`, its (old) XS source is incompatible with newer Perl's stricter `xsubpp`. Patch the offending line in the cpan build dir and rebuild manually:
-
-```bash
-D=$(ls -d ~/.cpan/build/MusicBrainz-DiscID-*/ | tail -1)
-cd "$D"
-sed -i 's/discid_put( disc, first_track, sectors, offsets ... )/discid_put( disc, first_track, sectors, ... )/' DiscID.xs
-make clean >/dev/null 2>&1
-/home/linuxbrew/.linuxbrew/opt/perl/bin/perl Makefile.PL && make && make install
-```
-
-Verify both modules load under **brew Perl** (not bare `perl`):
-
-```bash
-/home/linuxbrew/.linuxbrew/opt/perl/bin/perl -MMusicBrainz::DiscID -MWebService::MusicBrainz -e 'print "OK\n"'
-```
-
-Once that prints `OK`, `abcde` works again with no config changes.
-
 ## Verifying Rips (AccurateRip)
 
-You can confirm a rip is bit-accurate after the fact by checking it against the **AccurateRip** and **CUETools (CTDB)** databases — these compare your tracks' checksums against thousands of other people's rips of the same disc. This is independent verification you don't get from `abcde`/`cdparanoia` alone (which only do best-effort error correction during the read).
+You can confirm a rip is bit-accurate after the fact by checking it against the **AccurateRip** and **CUETools (CTDB)** databases — these compare your tracks' checksums against thousands of other people's rips of the same disc. whipper already checks AccurateRip during a rip, but this works on the FLACs you already have, so it covers albums that predate whipper or came from elsewhere.
 
 This works on the FLAC files you already have — the original CD is **not** needed. AccurateRip identifies a disc by its track layout, which is reconstructed from the FLAC sample counts.
 
@@ -264,12 +187,14 @@ If `mono`/CUETools live elsewhere, point the script at them with the `MONO_BIN` 
 | Status | Meaning |
 |--------|---------|
 | `OK` | Matched AccurateRip at offset 0 — bit-perfect. |
-| `OK*` | Matched, but only at a **nonzero read offset** (or via CTDB). The audio is accurate; the offset just reflects that `abcde`/`cdparanoia` don't correct the drive's read offset. This is normal and inaudible. |
+| `OK*` | Matched, but only at a **nonzero read offset** (or via CTDB). The audio is accurate; the offset just means the rip wasn't offset-corrected. Normal and inaudible. |
 | `DIFFERS` | The disc is in a database, but your tracks don't match — worth investigating (bad rip, or a different master/pressing). |
 | `NOT IN DB` | Neither database has this disc. Expected for vinyl rips, downloads, obscure pressings, or anything not ripped from a common CD — **not** a sign of a bad rip. |
 | `ERROR` | The verifier failed to run (e.g. timeout). |
 
-**Note on read offset:** because `abcde` doesn't apply drive read-offset correction, accurately-ripped CDs typically show as `OK*` (matched at a small offset like `+6`) rather than `OK`. That still confirms the audio is correct. To get clean offset-0 matches you'd need an offset-correcting ripper such as [whipper](#accurate-ripping-with-whipper-when-bit-perfect-matters), which also checks AccurateRip during the rip.
+**Note on read offset:** [whipper](#accurate-ripping-with-whipper) corrects the drive's read offset, so its rips match at offset 0. Albums ripped without that correction are still perfectly accurate — they just match at a small offset like `+6` (your drive's offset showing through) and report `OK*`. Both mean the audio is correct.
+
+Treat a **low-confidence** AccurateRip offset with suspicion. A match at `conf 1`–`2` and some wild offset (`+1765`, `-1098`) is one or two strangers' rips aligning by chance, not a real offset — check what CTDB says at its much higher confidence before believing it.
 
 ### What to actually worry about
 
@@ -287,7 +212,7 @@ AccurateRip verifies **bit-perfect archival correctness — not audible quality.
 
 **Decision guide for a genuine `DIFFERS`:**
 1. **Listen** at the timestamps. Hear nothing? → leave it; it's an archival-only blemish, not a quality problem.
-2. Hear a click/dropout? → **clean the disc and re-rip with [whipper](#accurate-ripping-with-whipper-when-bit-perfect-matters)** (it reports per-track whether you recovered it). For scratches, polish first, then re-rip.
+2. Hear a click/dropout? → **clean the disc and re-rip with [whipper](#accurate-ripping-with-whipper)** (it reports per-track whether you recovered it). For scratches, polish first, then re-rip.
 3. Can't re-rip, or the re-rip differs the same way? → if CTDB has parity for the disc, you can **reconstruct the bad samples from other people's rips** — no disc needed. See [Repairing from CTDB parity](#repairing-from-ctdb-parity).
 4. Disc physically unrecoverable? → **obtain a replacement copy of the same pressing** (match the TOC; verify the replacement with this same tool — `verify_rips.py /path/to/copy`) and splice in just the bad tracks.
 5. Most of the time, step 1 ends it.
@@ -520,7 +445,7 @@ scripts/check_multi_artist.py ~/Music/curated
 
 ReplayGain tags let players level playback volume so tracks don't jump in loudness. **Always make sure an album has ReplayGain tags before moving it to the library — add them if they're missing.**
 
-`abcde` applies ReplayGain automatically (it's in its `ACTIONS`), so everyday rips already have it. But **whipper does not**, and `metaflac --remove-all-tags` (used when retagging from scratch) wipes any existing `REPLAYGAIN_*`. So whipper rips and freshly-retagged albums need it added by hand.
+**whipper does not apply ReplayGain**, and `metaflac --remove-all-tags` (used when retagging from scratch) wipes any existing `REPLAYGAIN_*`. So fresh rips and freshly-retagged albums need it added by hand. Note album gain is a property of the whole album, so recompute across every track whenever any one of them changes.
 
 Check whether tags exist:
 
@@ -861,13 +786,12 @@ live in `rip/`.
 - `verify_rips.py` — Verify rips against AccurateRip/CTDB (see [Verifying Rips](#verifying-rips-accuraterip))
 - `ctdb_repair.py` — Check whether CTDB can repair a `DIFFERS` album, and with `--apply` do it end to end (see [docs/ctdb-repair.md](docs/ctdb-repair.md))
 - `ctdb-cli.sh` — Wrapper around `ctdb-cli`, for repairing a `DIFFERS` rip from CTDB parity. Needs a one-time source build (see [docs/ctdb-repair.md](docs/ctdb-repair.md))
-- `curate_whipper_rip.py` — Automate the whole post-whipper curation flow: pull, rename, tag, verify, and sync (see [Accurate ripping with whipper](#accurate-ripping-with-whipper-when-bit-perfect-matters))
+- `curate_whipper_rip.py` — Automate the whole post-whipper curation flow: pull, rename, tag, verify, and sync (see [Accurate ripping with whipper](#accurate-ripping-with-whipper))
 
 ### Syncing
 - `sync_to_jellyfin.py` — Sync the library to a Jellyfin server with automatic permission fixing
 
 ### CD Ripping (`rip/`)
-- `abcde.conf` — `abcde` config producing the curated layout (deploy to `~/.abcde.conf` on the rip host)
 - `rip-cd.sh` — whipper wrapper for AccurateRip-verified rips (uses `$RIP_OFFSET`); also runs the skipped-track rescue
 - `rescue-skipped.py` — recover tracks whipper skipped (best-effort `cd-paranoia`), flag them, and point you where to listen; run automatically by `rip-cd.sh`
 
