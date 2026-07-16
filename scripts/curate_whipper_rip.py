@@ -345,7 +345,13 @@ def split_artist_album(rip_path):
 def pull_rip(rip_host, rip_path, album_dir):
     album_dir.mkdir(parents=True, exist_ok=True)
     remote = f"{rip_host}:{REMOTE_RIP_DIR}/{rip_path}/"
-    cmd = ["rsync", "-av", remote, f"{album_dir}/"]
+    # -s (--secluded-args) sends the path over the protocol instead of through a
+    # remote shell. Modern rsync escapes spaces in remote args by default, but
+    # deliberately leaves the wildcards *, ?, [ and ] unescaped so they can
+    # expand -- and album titles ending in "?" are common. Without -s, a rip of
+    # "Artist - Album?" alongside a sibling "Artist - AlbumX" would glob to both
+    # and silently pull two albums' tracks into one folder.
+    cmd = ["rsync", "-av", "-s", remote, f"{album_dir}/"]
     proc = run(cmd)
     if proc.returncode != 0:
         raise Abort(f"rsync failed with exit code {proc.returncode}")
@@ -613,7 +619,11 @@ def run_verify_rips(album_dir):
     status = None
     for line in proc.stdout.splitlines():
         if album_dir.name.lower() in line.lower():
-            m = re.match(r"\s*\[(\S+)\s*\]", line)
+            # verify_rips pads the status to 9 chars ("[OK       ]"), and one of
+            # them -- "NOT IN DB", the routine verdict for a disc the databases
+            # don't have -- contains spaces, so \S+ can't match it. Take
+            # everything up to the "]" and drop the padding instead.
+            m = re.match(r"\s*\[([^\]]+?)\s*\]", line)
             if m:
                 status = m.group(1)
     return status
@@ -704,10 +714,13 @@ def main():
             album_dir = artist_dir / album_name
 
         if album_dir.exists():
-            raise Abort(
-                f"{album_dir} already exists. Investigate and resume manually with the "
-                "individual scripts (fetch_nfo.py, verify_rips.py, etc.) instead."
+            resume = (
+                "It's already staged; finish tagging it by hand"
+                if placeholder
+                else "Investigate and resume manually with the individual scripts "
+                     "(fetch_nfo.py, verify_rips.py, etc.)"
             )
+            raise Abort(f"{album_dir} already exists. {resume} instead.")
 
         if placeholder:
             print(f"\n=== Curating (no metadata): {album_name} ===\n")
