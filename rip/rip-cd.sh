@@ -40,7 +40,8 @@ sudo podman run --rm -i --device "$DEVICE" --user 0 \
 # the whipper log (it records per-track length + extraction speed, not wall
 # time). A loud, fast rip (high x) means a clean disc the drive could spin up
 # on; a slow one means the drive throttled down to re-read a marginal disc.
-LOG="$(ls -t "$HOME"/whipper/out/album/*/*.log 2>/dev/null | head -1)"
+# out/*/ is whipper's release-type dir (album, live, unknown, ...), so glob it.
+LOG="$(ls -t "$HOME"/whipper/out/*/*/*.log 2>/dev/null | head -1)"
 if [ -n "$LOG" ]; then
   python3 - "$LOG" <<'PY' || echo "  (speed analysis skipped)"
 import re, sys

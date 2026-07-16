@@ -116,7 +116,7 @@ sudo podman run --rm -it --device /dev/sr0 --user 0 \
 ```
 
 - **`-o "$RIP_OFFSET"`** read offset · **`-p`** prompt to pick the MusicBrainz release · **`-C complete`** cover art · **`-k`** keep going if a track fails
-- Output lands in `~/whipper/out/album/<Artist> - <Album>/` on the rip host (one flat folder per disc), with a per-track AccurateRip verdict in the log.
+- Output lands in `~/whipper/out/<release-type>/<Artist> - <Album>/` on the rip host (one flat folder per disc), with a per-track AccurateRip verdict in the log. `<release-type>` is the release's **MusicBrainz type, lowercased** — whipper's default disc template leads with it — so most rips land in `out/album/`, but a live album lands in `out/live/`, an EP in `out/ep/`, and a disc with no MusicBrainz match in [`out/unknown/`](#discs-musicbrainz-doesnt-know---unknown). Don't assume `out/album/`; check `ls ~/whipper/out/`.
 
 After whipper finishes, the wrapper runs a **rescue pass** (below) to fill in any tracks whipper skipped, so the output dir is always complete. It also prints a one-line speed summary (audio runtime vs. reconstructed rip time); a low average × flags a disc the drive had to throttle down to re-read.
 
@@ -126,6 +126,8 @@ After whipper finishes, the wrapper runs a **rescue pass** (below) to fill in an
 rsync -av "$RIP_HOST:whipper/out/album/Artist - Album/" \
   ~/Music/curated/"Artist"/"Album"/
 ```
+
+(Swap `album` for whatever release-type dir the rip actually landed in — `live`, `ep`, ….)
 
 **Then curate.** Unlike abcde, a whipper rip lands unnamed/undertagged, so before the [Processing Workflow](#processing-workflow) fix these up:
 
@@ -141,7 +143,9 @@ scripts/curate_whipper_rip.py            # curate the newest rip on $RIP_HOST
 scripts/curate_whipper_rip.py battle      # curate the rip whose folder name matches "battle"
 ```
 
-It only syncs to Jellyfin automatically when **all** of these hold: every track's AccurateRip verdict in the whipper log was a verified match (and no `RESCUED-TRACKS.txt`), [`verify_rips.py`](#verifying-rips-accuraterip) confirms `OK`/`OK*`, and a genre was found via [`fetch_nfo.py`](#getting-nfo-metadata). Otherwise it still curates the album but prints exactly which gate(s) failed and skips the sync. It aborts to manual curation for a rip folder that looks like one disc of a [multi-disc set](#multi-disc-albums), or if the destination album folder already exists (in which case, investigate and resume with the individual scripts).
+It searches **every** release-type dir under `~/whipper/out/`, so it finds a `live/` or `ep/` rip the same as an `album/` one — with no argument it takes the newest rip of any type, and a substring matches against the `<Artist> - <Album>` folder name (not the type prefix, so `live` won't match every live rip). The release types it will curate are listed in `CURATABLE_RELEASE_TYPES` at the top of the script. That list gates *curation*, not *discovery*: a rip in some type dir not on the list still shows up and aborts with a message naming it, so a type MusicBrainz adds later can't silently vanish — it just needs adding to the list.
+
+It only syncs to Jellyfin automatically when **all** of these hold: every track's AccurateRip verdict in the whipper log was a verified match (and no `RESCUED-TRACKS.txt`), [`verify_rips.py`](#verifying-rips-accuraterip) confirms `OK`/`OK*`, and a genre was found via [`fetch_nfo.py`](#getting-nfo-metadata). Otherwise it still curates the album but prints exactly which gate(s) failed and skips the sync. It aborts to manual curation for a rip folder that looks like one disc of a [multi-disc set](#multi-disc-albums), or if the destination album folder already exists (in which case, investigate and resume with the individual scripts). A disc with [no MusicBrainz match at all](#discs-musicbrainz-doesnt-know---unknown) is curated as far as it can go without metadata, then staged in `incoming/` for hand-tagging.
 
 **Tradeoffs:** whipper is noticeably **slower** than abcde (a one-time subchannel scan + careful per-track extraction) and interactive. Use it when verification matters; use abcde for everyday speed.
 
@@ -156,6 +160,38 @@ So `rip-cd.sh` runs [`rip/rescue-skipped.py`](rip/rescue-skipped.py) inside the 
 - writes it into the album dir under the exact filename the cue expects.
 
 Rescued tracks are **best-effort and NOT AccurateRip-verified.** The script says so on the console, drops a `RESCUED-TRACKS.txt` breadcrumb in the album dir, and — because used discs often aren't in AccurateRip/CTDB at all, so [`verify_rips.py`](#verifying-rips-accuraterip) can't help — prints the timestamp region where the drive's read-correction was heaviest, so you know **where to listen**. Treat a rescued track like a `DIFFERS`: [listen at the flagged spot](#what-to-actually-worry-about); if it's audibly bad, clean the disc and re-rip, or replace it. If whipper skipped nothing, the pass is silent.
+
+#### Discs MusicBrainz doesn't know (`--unknown`)
+
+An obscure or homemade disc may have no MusicBrainz release *and* no CD-Text. whipper's release prompt then has nothing to offer and it refuses to rip, so pass `--unknown` through the wrapper:
+
+```bash
+ssh -t "$RIP_HOST" 'RIP_OFFSET=6 ~/whipper/rip-cd.sh --unknown'
+```
+
+The audio is still ripped accurately — only the *metadata* is missing. With no release to name it after, whipper files it under the `unknown` release type, keyed by disc ID, with placeholder tags and filenames:
+
+```
+~/whipper/out/unknown/Unknown Artist - ZKI8bsYgnj8JMN8xw_UNOzyLbVQ-/
+  01. Unknown Artist - Unknown Track 1.flac
+  ...
+```
+
+[`curate_whipper_rip.py`](scripts/curate_whipper_rip.py) still handles these, but only as far as it can without metadata. It recognizes the placeholder and **stages the album in `$MUSIC_DIR/incoming/<discid>/` instead of `curated/`** — deliberately outside the library, so a nameless disc can never reach Jellyfin — then does everything that doesn't need MusicBrainz and stops:
+
+| Runs | Skipped (all need an artist/album to look up) |
+|------|-----------------------------------------------|
+| Preflight (AccurateRip verdicts from the whipper log) | NFO + genre |
+| `rsync` pull, rename to `NN Title.flac` | Artist image |
+| `TRACKNUMBER` (zero-padded) + `TRACKTOTAL` | Lyrics |
+| ReplayGain | Tag/image checks |
+| [`verify_rips.py`](#verifying-rips-accuraterip) | Jellyfin sync (never, for placeholder tags) |
+
+Track numbers come off the disc and ReplayGain is pure audio analysis, so both work fine with no metadata. **Verification works too** — AccurateRip and CTDB are keyed on the disc **TOC**, not on MusicBrainz, so a disc MusicBrainz has never heard of can still verify perfectly. (The example disc above returns `[OK] AccurateRip 13/13, CTDB 13/13` despite having no MusicBrainz release at all.) A genuinely homemade disc will come back `NOT IN DB`; that's expected, and the whipper log's per-track verdicts are then your only verification.
+
+It finishes by printing what's left for you, including the **MusicBrainz `cdtoc/attach` URL** whipper logged for the disc. That one's worth following: whipper computes the disc ID and TOC whether or not a release matched, and attaching the TOC to a release (creating it if needed) is what makes the *next* rip of that disc match automatically. Then, per [Tagging Files](#tagging-files): tag `ARTIST`/`ALBUM`/`TITLE`/`DATE`/`GENRE`, rename to the real titles, drop in a `cover.jpg` by hand (the [artwork](#getting-artwork) scripts need a MusicBrainz match), move it from `incoming/` into `curated/<Artist>/<Album>/`, and [sync](#syncing-to-jellyfin-server).
+
+Note that `unknown/` means whipper found **no release *type***, which isn't quite the same as no metadata — a release that MusicBrainz knows but whose release group has no type set also lands there, with its real artist and album intact. Those curate normally; only the `Unknown Artist - <discid>` placeholder gets staged in `incoming/`.
 
 **Gotchas:**
 - The read offset is specific to **your drive**. Find it once with `whipper offset find` (against a disc that's in AccurateRip) and set `RIP_OFFSET`.

@@ -3,12 +3,14 @@
 
 it, and (if it's clean) sync it to Jellyfin.
 
-whipper lands rips unnamed/undertagged in `~/whipper/out/album/<Artist> -
-<Album>/` on the rip host (see README "Accurate ripping with whipper"). This
-script automates the whole post-rip workflow described in the README's
-"Processing Workflow" checklist:
+whipper lands rips unnamed/undertagged in `~/whipper/out/<release-type>/<Artist>
+- <Album>/` on the rip host, where <release-type> is the release's MusicBrainz
+type lowercased -- "album", "live", "ep", ... (see README "Accurate ripping with
+whipper"). This script automates the whole post-rip workflow described in the
+README's "Processing Workflow" checklist:
 
-  1. Pick a rip on the rip host (newest, or by substring match).
+  1. Pick a rip on the rip host (newest, or by substring match), across all
+     release types.
   2. Preflight: parse the whipper `.log` for per-track AccurateRip verdicts
      and check for a `RESCUED-TRACKS.txt` breadcrumb.
   3. Pull it down with rsync into $MUSIC_DIR/curated/<Artist>/<Album>/.
@@ -30,7 +32,13 @@ script automates the whole post-rip workflow described in the README's
 
 A rip that looks like one disc of a multi-disc set, or whose destination
 album dir already exists, aborts immediately -- both are handled manually
-(see README "Multi-Disc Albums").
+(see README "Multi-Disc Albums"). So does a rip in an unrecognized release-type
+dir (see CURATABLE_RELEASE_TYPES).
+
+A disc with no MusicBrainz match at all can't be named or looked up, so it's
+staged in $MUSIC_DIR/incoming/<discid>/ rather than the library, gets only the
+steps that need no metadata (1-3, 6-7, 10-11 above), and stops with a list of
+what to do by hand. See is_placeholder_rip.
 
 Usage:
   scripts/curate_whipper_rip.py                # curate the newest rip
@@ -57,10 +65,41 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MUSIC_DIR = Path(os.environ.get("MUSIC_DIR", Path.home() / "Music")).expanduser()
 CURATED_DIR = MUSIC_DIR / "curated"
-REMOTE_RIP_DIR = "whipper/out/album"  # relative to the rip host's home dir
+# Staging area for rips we can't name yet (see is_placeholder_rip). Deliberately
+# outside curated/ so untagged discs never reach the library or a Jellyfin sync.
+INCOMING_DIR = MUSIC_DIR / "incoming"
+# Relative to the rip host's home dir. whipper's default disc template starts
+# with %r (the release type, lowercased), so rips land one level down in
+# out/<type>/, e.g. out/album/, out/live/, out/unknown/.
+REMOTE_RIP_DIR = "whipper/out"
 
 MULTI_DISC_RE = re.compile(r"\((disc|cd)\s*\d+\)", re.IGNORECASE)
 VERIFIED_STATUSES = {"OK", "OK*"}
+
+# whipper's %r is the release-group's *legacy combined* MusicBrainz type,
+# lowercased (whipper/common/program.py). "Combined" means a secondary type
+# overrides the primary one -- The Cure's "Show" is primary=Album,
+# secondary=Live, and lands in live/, not album/. whipper also runs every
+# template value through PathFilter, which rewrites "/" to "_", so
+# "Mixtape/Street" arrives as "mixtape_street" and a type can never nest deeper
+# than one dir.
+#
+# This list is the closed vocabulary of that legacy field. It gates *curation*,
+# not *discovery*: an unrecognized type still shows up in the scan and aborts
+# loudly (see main), so a type MusicBrainz adds later can never silently vanish
+# -- it just needs adding here.
+CURATABLE_RELEASE_TYPES = frozenset({
+    # primary types
+    "album", "single", "ep", "broadcast", "other",
+    # secondary types (override the primary in the combined field)
+    "compilation", "soundtrack", "spokenword", "interview", "audiobook",
+    "audio drama", "live", "remix", "dj-mix", "mixtape_street", "demo",
+    "field recording",
+})
+# whipper's fallbacks when it has no MusicBrainz release to name things after.
+UNKNOWN_RELEASE_TYPE = "unknown"
+PLACEHOLDER_ARTIST = "Unknown Artist"
+KNOWN_RELEASE_TYPES = CURATABLE_RELEASE_TYPES | {UNKNOWN_RELEASE_TYPE}
 
 
 class Abort(Exception):
@@ -89,40 +128,107 @@ def ssh_output(rip_host, remote_cmd):
 
 
 def list_rip_dirs(rip_host):
-    """Return [(mtime, name), ...] of rip folders on the rip host, newest last."""
+    """Return [(mtime, rel_path), ...] of rip folders on the rip host, newest last.
+
+    rel_path is "<release-type>/<Artist> - <Album>", relative to REMOTE_RIP_DIR.
+    """
     # -printf with a tab keeps folder names (spaces, unicode) unambiguous.
+    # %P prints the path relative to the starting point, keeping the type dir.
     out = ssh_output(
         rip_host,
-        f"find ~/{REMOTE_RIP_DIR} -mindepth 1 -maxdepth 1 -type d -printf '%T@\\t%f\\n'",
+        f"find ~/{REMOTE_RIP_DIR} -mindepth 2 -maxdepth 2 -type d -printf '%T@\\t%P\\n'",
     )
     rows = []
     for line in out.splitlines():
         if not line.strip():
             continue
-        mtime_str, name = line.split("\t", 1)
-        rows.append((float(mtime_str), name))
+        mtime_str, rel_path = line.split("\t", 1)
+        rows.append((float(mtime_str), rel_path))
     return sorted(rows)
 
 
 def select_rip(rip_host, substring):
+    """Return the rel_path of the rip to curate (newest, or matching substring)."""
     rows = list_rip_dirs(rip_host)
     if not rows:
-        raise Abort(f"No rip folders found in ~/{REMOTE_RIP_DIR} on {rip_host}")
+        raise Abort(f"No rip folders found in ~/{REMOTE_RIP_DIR}/*/ on {rip_host}")
 
     if substring is None:
-        _, name = rows[-1]
-        print(f"No argument given; selecting newest rip: {name!r}")
-        return name
+        _, rel_path = rows[-1]
+        print(f"No argument given; selecting newest rip: {rel_path!r}")
+        return rel_path
 
-    matches = [name for _, name in rows if substring.lower() in name.lower()]
+    # Match on the folder name only: matching the whole rel_path would make
+    # "live" (or any release type) match every rip under that type's dir.
+    matches = [p for _, p in rows if substring.lower() in rip_folder_name(p).lower()]
     if len(matches) == 1:
         print(f"Selected rip matching {substring!r}: {matches[0]!r}")
         return matches[0]
     if not matches:
-        candidates = "\n".join(f"  - {name}" for _, name in rows)
+        candidates = "\n".join(f"  - {p}" for _, p in rows)
         raise Abort(f"No rip folder matches {substring!r}. Candidates:\n{candidates}")
-    candidates = "\n".join(f"  - {name}" for name in matches)
+    candidates = "\n".join(f"  - {p}" for p in matches)
     raise Abort(f"Multiple rip folders match {substring!r}:\n{candidates}")
+
+
+def rip_folder_name(rip_path):
+    """The "<Artist> - <Album>" folder name, without the release-type prefix."""
+    return rip_path.split("/")[-1]
+
+
+def rip_release_type(rip_path):
+    """The whipper release-type dir a rip sits in ("album", "live", "unknown"...)."""
+    return rip_path.split("/")[0]
+
+
+def is_placeholder_rip(rip_path):
+    """True if whipper had no MusicBrainz release and fell back to placeholders.
+
+    Don't mistake the unknown/ dir for this. whipper defaults %r to "unknown"
+    *before* it looks at the release, and only overwrites it if the release
+    group has a type set (whipper/common/program.py):
+
+        v['A'] = 'Unknown Artist'
+        v['r'] = 'unknown'
+        if metadata:
+            v['A'] = metadata.artist
+            if metadata.releaseType:      # <-- an untyped release group skips this
+                v['r'] = metadata.releaseType.lower()
+
+    So unknown/ means "no release *type*", which covers two different discs: one
+    with no MusicBrainz match at all (placeholder artist + disc ID for a title),
+    and one that matched fine but whose release group is untyped -- the latter
+    arrives as "unknown/<Real Artist> - <Real Album>" with usable metadata and
+    curates normally. The placeholder artist, not the dir, is the real signal.
+    """
+    return (
+        rip_release_type(rip_path) == UNKNOWN_RELEASE_TYPE
+        and rip_folder_name(rip_path).startswith(f"{PLACEHOLDER_ARTIST} - ")
+    )
+
+
+def rip_disc_id(rip_path):
+    """The disc ID a placeholder rip is named after ("Unknown Artist - <discid>")."""
+    return rip_folder_name(rip_path).split(" - ", 1)[1]
+
+
+MB_LOOKUP_URL_RE = re.compile(r"MusicBrainz lookup URL:\s*(\S+)")
+
+
+def mb_lookup_url(album_dir):
+    """The cdtoc/attach URL whipper logs for a disc it couldn't identify.
+
+    whipper computes the disc's TOC and MusicBrainz disc ID regardless of
+    whether a release matched, and logs a URL that attaches this TOC to a
+    release. Following it (and creating the release if it doesn't exist) is what
+    makes the *next* rip of this disc match automatically -- so it's the most
+    useful thing to hand back for a placeholder rip.
+    """
+    for log in sorted(album_dir.glob("*.log")):
+        m = MB_LOOKUP_URL_RE.search(log.read_text(encoding="utf-8", errors="replace"))
+        if m:
+            return m.group(1)
+    return None
 
 
 # --- Preflight: whipper log + rescue check ------------------------------
@@ -184,11 +290,11 @@ def parse_whipper_log(text):
     return tracks
 
 
-def preflight(rip_host, rip_name):
+def preflight(rip_host, rip_path):
     """Fetch the whipper log + rescue breadcrumb; return (clean, tracks, rescued)."""
     # ~/ must stay outside the quoting or the remote shell won't expand it
-    remote_dir = f"~/{shlex.quote(f'{REMOTE_RIP_DIR}/{rip_name}')}"
-    # find the actual .log filename in case it's not exactly "<rip_name>.log"
+    remote_dir = f"~/{shlex.quote(f'{REMOTE_RIP_DIR}/{rip_path}')}"
+    # find the actual .log filename in case it's not exactly "<folder name>.log"
     listing = ssh_output(rip_host, f"ls -1 {remote_dir}")
     log_candidates = [l for l in listing.splitlines() if l.endswith(".log")]
     if not log_candidates:
@@ -228,17 +334,18 @@ def preflight(rip_host, rip_name):
 # --- Pull ----------------------------------------------------------------
 
 
-def split_artist_album(rip_name):
-    if " - " not in rip_name:
-        raise Abort(f"Rip folder name {rip_name!r} doesn't look like 'Artist - Album'")
-    artist, album = rip_name.split(" - ", 1)
+def split_artist_album(rip_path):
+    name = rip_folder_name(rip_path)
+    if " - " not in name:
+        raise Abort(f"Rip folder name {name!r} doesn't look like 'Artist - Album'")
+    artist, album = name.split(" - ", 1)
     return artist.strip(), album.strip()
 
 
-def pull_rip(rip_host, rip_name, album_dir):
+def pull_rip(rip_host, rip_path, album_dir):
     album_dir.parent.mkdir(parents=True, exist_ok=True)
     album_dir.mkdir(parents=True, exist_ok=True)
-    remote = f"{rip_host}:{REMOTE_RIP_DIR}/{rip_name}/"
+    remote = f"{rip_host}:{REMOTE_RIP_DIR}/{rip_path}/"
     cmd = ["rsync", "-av", remote, f"{album_dir}/"]
     proc = run(cmd)
     if proc.returncode != 0:
@@ -490,10 +597,13 @@ def cleanup_sidecars(album_dir):
 # --- Verify / checks --------------------------------------------------------
 
 
-def run_verify_rips(artist_dir, album_name):
+def run_verify_rips(album_dir):
+    """Verify just this album. verify_rips treats any FLAC-holding dir as a unit,
+    so pointing it at the album dir works whether it landed in curated/ or
+    incoming/ -- and it doesn't re-verify the artist's other albums."""
     script = REPO_ROOT / "scripts" / "verify_rips.py"
     proc = subprocess.run(
-        [str(script), str(artist_dir)],
+        [str(script), str(album_dir)],
         capture_output=True,
         text=True,
     )
@@ -503,7 +613,7 @@ def run_verify_rips(artist_dir, album_name):
 
     status = None
     for line in proc.stdout.splitlines():
-        if album_name.lower() in line.lower():
+        if album_dir.name.lower() in line.lower():
             m = re.match(r"\s*\[(\S+)\s*\]", line)
             if m:
                 status = m.group(1)
@@ -562,17 +672,37 @@ def main():
         sys.exit("Error: RIP_HOST environment variable must be set (ssh alias of the rip host)")
 
     try:
-        rip_name = select_rip(rip_host, args.substring)
+        rip_path = select_rip(rip_host, args.substring)
 
-        if MULTI_DISC_RE.search(rip_name):
+        release_type = rip_release_type(rip_path)
+        if release_type not in KNOWN_RELEASE_TYPES:
             raise Abort(
-                f"{rip_name!r} looks like one disc of a multi-disc set (disc N)/(CD N). "
-                "Multi-disc curation is manual -- see README 'Multi-Disc Albums'."
+                f"{rip_path!r} sits in an unrecognized release-type dir "
+                f"{release_type + '/'!r}. whipper names that dir after the release's "
+                "MusicBrainz type, so this is most likely a type that isn't in "
+                "CURATABLE_RELEASE_TYPES yet -- add it there (top of this script) "
+                "if it's a normal release. Recognized: "
+                f"{', '.join(sorted(KNOWN_RELEASE_TYPES))}."
             )
 
-        artist_name, album_name = split_artist_album(rip_name)
-        artist_dir = CURATED_DIR / artist_name
-        album_dir = artist_dir / album_name
+        if MULTI_DISC_RE.search(rip_folder_name(rip_path)):
+            raise Abort(
+                f"{rip_folder_name(rip_path)!r} looks like one disc of a multi-disc set "
+                "(disc N)/(CD N). Multi-disc curation is manual -- see README "
+                "'Multi-Disc Albums'."
+            )
+
+        # A placeholder rip has no artist/album to file under, so it stages in
+        # incoming/<discid>/ and skips every step that needs MusicBrainz.
+        placeholder = is_placeholder_rip(rip_path)
+        if placeholder:
+            artist_name, artist_dir = None, None
+            album_name = rip_disc_id(rip_path)
+            album_dir = INCOMING_DIR / album_name
+        else:
+            artist_name, album_name = split_artist_album(rip_path)
+            artist_dir = CURATED_DIR / artist_name
+            album_dir = artist_dir / album_name
 
         if album_dir.exists():
             raise Abort(
@@ -580,13 +710,19 @@ def main():
                 "individual scripts (fetch_nfo.py, verify_rips.py, etc.) instead."
             )
 
-        print(f"\n=== Curating: {artist_name} / {album_name} ===\n")
+        if placeholder:
+            print(f"\n=== Curating (no metadata): {album_name} ===\n")
+            print("  This disc has no MusicBrainz match, so whipper fell back to")
+            print("  placeholder tags. Running the steps that don't need metadata")
+            print(f"  and staging it in {INCOMING_DIR}/ for hand-tagging.\n")
+        else:
+            print(f"\n=== Curating: {artist_name} / {album_name} ===\n")
 
         print("--- Step 1: Preflight (whipper log) ---")
-        clean, _tracks, rescued = preflight(rip_host, rip_name)
+        clean, _tracks, rescued = preflight(rip_host, rip_path)
 
         print("\n--- Step 2: Pull rip ---")
-        pull_rip(rip_host, rip_name, album_dir)
+        pull_rip(rip_host, rip_path, album_dir)
 
         print("\n--- Step 3: Rename tracks ---")
         flacs = rename_tracks(album_dir)
@@ -594,14 +730,20 @@ def main():
             raise Abort("No FLAC tracks found/renamed after pulling the rip.")
 
         print("\n--- Step 4: NFO metadata + genre ---")
-        fetch_nfo(album_dir)
-        genre = fetch_mb_genre(flacs)
+        genre = None
+        if placeholder:
+            print("  Skipped -- no MusicBrainz match, so no artist/album to look up")
+        else:
+            fetch_nfo(album_dir)
+            genre = fetch_mb_genre(flacs)
         missing_genre = genre is None
         if genre:
             print(f"  Genre from MusicBrainz: {genre}")
-        else:
+        elif not placeholder:
             print("  ! No MusicBrainz genre found; GENRE tag will be left unset")
 
+        # Track numbers come off the disc, not MusicBrainz, so TRACKNUMBER and
+        # TRACKTOTAL get set either way; fix_tags skips DATE/GENRE when unset.
         print("\n--- Step 5: Tags ---")
         fix_tags(flacs, genre)
 
@@ -609,58 +751,102 @@ def main():
         add_replaygain(flacs)
 
         print("\n--- Step 7: Artist image ---")
-        fetch_artist_image(artist_dir)
+        if placeholder:
+            print("  Skipped -- no artist to look up")
+        else:
+            fetch_artist_image(artist_dir)
 
         print("\n--- Step 8: Lyrics ---")
-        lyrics_proc = fetch_lyrics(album_dir)
+        lyrics_proc = None
+        if placeholder:
+            print("  Skipped -- no artist/title to search on")
+        else:
+            lyrics_proc = fetch_lyrics(album_dir)
 
         print("\n--- Step 9: Cleanup sidecars ---")
         removed = cleanup_sidecars(album_dir)
         print(f"  Removed: {', '.join(removed) if removed else '(none found)'}")
 
+        # AccurateRip/CTDB are keyed on the disc TOC, not MusicBrainz, so this is
+        # worth running even with no metadata -- though an obscure disc MB has
+        # never seen is unlikely to be in those databases either (NOT IN DB).
         print("\n--- Step 10: Verify rip (AccurateRip/CTDB) ---")
-        verify_status = run_verify_rips(artist_dir, album_name)
+        verify_status = run_verify_rips(album_dir)
         verified = verify_status in VERIFIED_STATUSES
 
         print("\n--- Step 11: Tag/image checks ---")
-        run_checks(artist_dir, artist_name)
+        if placeholder:
+            print("  Skipped -- tags stay placeholders until you fill them in")
+        else:
+            run_checks(artist_dir, artist_name)
 
         print("\n--- Step 12: Auto-sync ---")
-        gates = {
-            "preflight clean": clean,
-            "verify_rips verdict OK/OK*": verified,
-            "genre set": not missing_genre,
-        }
-        failing_gates = [name for name, ok in gates.items() if not ok]
         synced = False
-        sync_reason = ""
-        if not failing_gates:
-            synced = sync_to_jellyfin()
-            sync_reason = "all gates passed" if synced else "sync_to_jellyfin.py failed"
-        else:
-            sync_reason = "gate(s) failed: " + ", ".join(failing_gates)
+        if placeholder:
+            sync_reason = "placeholder tags -- never sync an untagged disc"
             print(f"  Skipping sync -- {sync_reason}")
+        else:
+            gates = {
+                "preflight clean": clean,
+                "verify_rips verdict OK/OK*": verified,
+                "genre set": not missing_genre,
+            }
+            failing_gates = [name for name, ok in gates.items() if not ok]
+            if not failing_gates:
+                synced = sync_to_jellyfin()
+                sync_reason = "all gates passed" if synced else "sync_to_jellyfin.py failed"
+            else:
+                sync_reason = "gate(s) failed: " + ", ".join(failing_gates)
+                print(f"  Skipping sync -- {sync_reason}")
 
         print("\n" + "=" * 60)
         print("SUMMARY")
         print("=" * 60)
-        print(f"  Album:            {artist_name} / {album_name}")
+        if placeholder:
+            print(f"  Album:            (no metadata -- disc ID {album_name})")
+            print(f"  Staged in:        {album_dir}")
+        else:
+            print(f"  Album:            {artist_name} / {album_name}")
         print(f"  Tracks:           {len(flacs)}")
         print(f"  AccurateRip:      preflight {'clean' if clean else 'NOT CLEAN'}; "
               f"verify_rips {verify_status or 'unknown'}")
-        print(f"  Genre:            {genre or '(none -- GENRE tag unset)'}")
+        if not placeholder:
+            print(f"  Genre:            {genre or '(none -- GENRE tag unset)'}")
         if lyrics_proc is not None:
             print(f"  Lyrics:           see fetch_lyrics.py summary above (exit {lyrics_proc.returncode})")
         flags = []
         if rescued:
             flags.append("RESCUED-TRACKS.txt present")
-        if missing_genre:
+        if placeholder:
+            flags.append("no MusicBrainz metadata")
+        elif missing_genre:
             flags.append("missing genre")
         if not verified:
             flags.append(f"verify_rips verdict {verify_status or 'unknown'}")
         print(f"  Flags:            {', '.join(flags) if flags else '(none)'}")
         print(f"  Synced:           {'yes' if synced else 'no'} ({sync_reason})")
         print("=" * 60)
+
+        if placeholder:
+            print()
+            print("STOPPING: no metadata to work with. Done automatically:")
+            print("  - pulled, renamed to 'NN Title.flac' (titles are placeholders)")
+            print("  - TRACKNUMBER + TRACKTOTAL tagged, ReplayGain added, rip verified")
+            print("Left for you, by hand:")
+            url = mb_lookup_url(album_dir)
+            if url:
+                print("  1. Identify the disc. whipper logged a MusicBrainz URL that")
+                print("     attaches this disc's TOC to a release -- do that and the")
+                print("     next rip of it matches automatically:")
+                print(f"     {url}")
+            else:
+                print("  1. Identify the disc (no MusicBrainz lookup URL in the log).")
+            print("  2. Tag ARTIST/ALBUM/TITLE/DATE/GENRE -- see README 'Tagging Files'")
+            print("  3. Rename the files to their real titles")
+            print("  4. Add cover.jpg (the artwork scripts need a MusicBrainz match)")
+            print(f"  5. Move it into {CURATED_DIR}/<Artist>/<Album>/")
+            print("  6. Sync: scripts/sync_to_jellyfin.py --scan")
+            print("See README \"Discs MusicBrainz doesn't know (--unknown)\".")
 
     except Abort as e:
         print(f"\nAborting: {e}", file=sys.stderr)
