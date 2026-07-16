@@ -237,6 +237,20 @@ def extract_track(wav, toc, n, dst):
     )
 
 
+def backup_subpath(album):
+    """Where under the backup root an album's originals go.
+
+    Mirror the album's path under MUSIC_DIR so multi-disc albums keep their
+    artist: "curated/Pink Floyd/The Wall/Disc 2", not "The Wall/Disc 2". Taking
+    just parent/name drops the artist for Artist/Album/Disc N/ layouts.
+    """
+    album = album.resolve()
+    try:
+        return album.relative_to(MUSIC_DIR.resolve())
+    except ValueError:
+        return Path(album.name)  # album lives outside the library
+
+
 def copy_tags(src, dst, work):
     """Carry src's tags to dst, minus ReplayGain (recomputed across the album)."""
     tags = must_run(["metaflac", "--export-tags-to=-", src], f"reading tags from {src.name}")
@@ -291,7 +305,7 @@ def apply_repair(ctdb_cli, album, flacs, work, cue, entry, unmatched, backup_roo
                  "-- refusing to install")
     print(f"  repaired copy verifies clean ({matched} tracks matched)")
 
-    backup = backup_root / album.parent.name / album.name
+    backup = backup_root / backup_subpath(album)
     backup.mkdir(parents=True, exist_ok=True)
     for i in damaged:
         orig = flacs[i - 1]
