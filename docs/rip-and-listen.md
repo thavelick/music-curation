@@ -12,7 +12,6 @@ Personal working lists — discs to rip, and already-ripped albums queued to lis
 | Danny Elfman | So-Lo | |
 | Johnny Cash | 16 Biggest Hits | have *American IV* already |
 | Various Artists | Songs in the Key of Springfield | |
-| Barenaked Ladies | Disc One: All Their Greatest Hits (1991–2001) | |
 
 ## Re-rip to FLAC — currently MP3 in the library
 
@@ -29,7 +28,6 @@ Personal working lists — discs to rip, and already-ripped albums queued to lis
 - Alabama — Pass It On Down
 - Freddie Jackson — Here It Is
 - Barenaked Ladies — Barenaked Ladies Are Me
-- Bad Religion — Stranger Than Fiction
 - They Might Be Giants — Severe Tire Damage
 - mindGOflip — Bounce Bounce Sound
 - Art of Noise — Daft
@@ -42,3 +40,4 @@ Personal working lists — discs to rip, and already-ripped albums queued to lis
 - Royal Crown Revue — Caught in the Act
 - Royal Crown Revue — Mugzy's Move
 - Big Bad Voodoo Daddy — Big Bad Voodoo Daddy
+- Barenaked Ladies — Disc One: All Their Greatest Hits: 1991-2001
