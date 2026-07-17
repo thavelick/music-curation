@@ -77,6 +77,12 @@ REMOTE_RIP_DIR = "whipper/out"
 MULTI_DISC_RE = re.compile(r"\((disc|cd)\s*\d+\)", re.IGNORECASE)
 VERIFIED_STATUSES = {"OK", "OK*"}
 
+# rip-cd.sh touches this in a rip's output folder only after a full rip +
+# rescue pass (set -e aborts it earlier on failure/interrupt). --wait-for-rip
+# requires it so an interrupted rip -- whose wrapper process also just
+# "disappeared" -- can't be mistaken for a finished one and half-curated.
+RIP_COMPLETE_SENTINEL = ".rip-complete"
+
 # whipper's %r is the release-group's *legacy combined* MusicBrainz type,
 # lowercased (whipper/common/program.py). "Combined" means a secondary type
 # overrides the primary one -- The Cure's "Show" is primary=Album,
@@ -153,6 +159,27 @@ def wait_for_rip(rip_host, poll_interval=20):
     while running_pids():
         time.sleep(poll_interval)
     print("  Rip finished; proceeding to curate.")
+
+
+def assert_rip_complete(rip_host, rip_path):
+    """Abort unless the rip folder has rip-cd.sh's completion sentinel.
+
+    wait_for_rip only knows the wrapper is gone, which is equally true whether
+    the rip finished or was Ctrl-C'd partway. rip-cd.sh writes RIP_COMPLETE_SENTINEL
+    only on a full rip + rescue, so its absence means an interrupted (partial)
+    rip -- refuse it rather than half-curate. Only enforced under --wait-for-rip;
+    manually curating an older rip predating the sentinel stays fine.
+    """
+    remote_dir = f"~/{shlex.quote(f'{REMOTE_RIP_DIR}/{rip_path}')}"
+    sentinel = shlex.quote(RIP_COMPLETE_SENTINEL)
+    out = ssh_output(rip_host, f"test -e {remote_dir}/{sentinel} && echo yes || echo no")
+    if out.strip() != "yes":
+        raise Abort(
+            f"{rip_path!r} has no {RIP_COMPLETE_SENTINEL} sentinel -- the rip looks "
+            "incomplete (interrupted partway?). rip-cd.sh writes it only after a full "
+            "rip + rescue. If this rip predates that change, redeploy rip/rip-cd.sh to "
+            "the rip host, or curate it explicitly (by name, without --wait-for-rip)."
+        )
 
 
 def list_rip_dirs(rip_host):
@@ -379,7 +406,9 @@ def pull_rip(rip_host, rip_path, album_dir):
     # expand -- and album titles ending in "?" are common. Without -s, a rip of
     # "Artist - Album?" alongside a sibling "Artist - AlbumX" would glob to both
     # and silently pull two albums' tracks into one folder.
-    cmd = ["rsync", "-av", "-s", remote, f"{album_dir}/"]
+    # Exclude rip-cd.sh's .rip-complete sentinel -- it's a rip-host completion
+    # marker (see assert_rip_complete), not something the library should carry.
+    cmd = ["rsync", "-av", "-s", "--exclude", RIP_COMPLETE_SENTINEL, remote, f"{album_dir}/"]
     proc = run(cmd)
     if proc.returncode != 0:
         raise Abort(f"rsync failed with exit code {proc.returncode}")
@@ -720,6 +749,11 @@ def main():
             wait_for_rip(rip_host)
 
         rip_path = select_rip(rip_host, args.substring)
+
+        # Under --wait-for-rip, make sure the rip we picked actually finished --
+        # a wrapper killed partway leaves a partial folder but no sentinel.
+        if args.wait_for_rip:
+            assert_rip_complete(rip_host, rip_path)
 
         release_type = rip_release_type(rip_path)
         if release_type not in KNOWN_RELEASE_TYPES:

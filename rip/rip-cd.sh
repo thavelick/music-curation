@@ -36,12 +36,24 @@ sudo podman run --rm -i --device "$DEVICE" --user 0 \
   --entrypoint python3 \
   "$IMAGE" - /output --device "$DEVICE" < "$SCRIPT_DIR/rescue-skipped.py"
 
+# Locate this rip's output folder via its (newest) log. out/*/ is whipper's
+# release-type dir (album, live, unknown, ...), so glob it.
+LOG="$(ls -t "$HOME"/whipper/out/*/*/*.log 2>/dev/null | head -1)"
+
+# Mark the rip complete. curate_whipper_rip.py --wait-for-rip waits for this
+# wrapper to exit, but a dead wrapper alone can't tell a finished rip from one
+# Ctrl-C'd partway (it's gone either way). We only reach here after a full rip
+# + rescue -- set -e aborts earlier on any failure or interrupt -- so
+# .rip-complete exists iff the rip truly finished, letting curate refuse to
+# process a partial rip.
+if [ -n "$LOG" ]; then
+  touch "$(dirname "$LOG")/.rip-complete"
+fi
+
 # Speed summary: reconstruct how long the rip took vs. the disc's runtime from
 # the whipper log (it records per-track length + extraction speed, not wall
 # time). A loud, fast rip (high x) means a clean disc the drive could spin up
 # on; a slow one means the drive throttled down to re-read a marginal disc.
-# out/*/ is whipper's release-type dir (album, live, unknown, ...), so glob it.
-LOG="$(ls -t "$HOME"/whipper/out/*/*/*.log 2>/dev/null | head -1)"
 if [ -n "$LOG" ]; then
   python3 - "$LOG" <<'PY' || echo "  (speed analysis skipped)"
 import re, sys
