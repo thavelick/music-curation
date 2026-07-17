@@ -43,6 +43,7 @@ what to do by hand. See is_placeholder_rip.
 Usage:
   scripts/curate_whipper_rip.py                # curate the newest rip
   scripts/curate_whipper_rip.py battle          # curate the rip matching "battle"
+  scripts/curate_whipper_rip.py --wait-for-rip  # wait for the running rip, then curate it
 
 Environment:
   RIP_HOST    required; SSH alias of the rip host (e.g. "bazzite")
@@ -125,6 +126,33 @@ def ssh_output(rip_host, remote_cmd):
 
 
 # --- Rip selection -----------------------------------------------------
+
+
+def wait_for_rip(rip_host, poll_interval=20):
+    """Block until the whipper rip wrapper finishes on the rip host.
+
+    The documented rip flow runs rip/rip-cd.sh, which drives whipper and then
+    a rescue pass (see README "Accurate ripping with whipper"); only when that
+    wrapper exits is the output dir complete. With nothing running this returns
+    immediately, so --wait-for-rip is safe to pass even after a rip is done.
+
+    The pgrep pattern is bracketed ('[r]ip-cd.sh') so it can't match the pgrep
+    process's own command line -- the classic self-match guard -- and `|| true`
+    swallows pgrep's exit code 1 when there's no match (which ssh_output would
+    otherwise treat as a failure).
+    """
+    def running_pids():
+        out = ssh_output(rip_host, "pgrep -f '[r]ip-cd.sh' || true")
+        return [p for p in out.split() if p.strip()]
+
+    pids = running_pids()
+    if not pids:
+        print("  No rip in progress on the rip host; proceeding to curate.")
+        return
+    print(f"  Rip in progress (rip-cd.sh PID {', '.join(pids)}); waiting for it to finish...")
+    while running_pids():
+        time.sleep(poll_interval)
+    print("  Rip finished; proceeding to curate.")
 
 
 def list_rip_dirs(rip_host):
@@ -674,6 +702,12 @@ def main():
         nargs="?",
         help="case-insensitive substring to match a rip folder name (default: newest rip)",
     )
+    parser.add_argument(
+        "--wait-for-rip",
+        action="store_true",
+        help="block until an in-progress whipper rip (rip-cd.sh) on the rip host "
+             "finishes before selecting and curating a rip",
+    )
     args = parser.parse_args()
 
     rip_host = os.environ.get("RIP_HOST")
@@ -681,6 +715,10 @@ def main():
         sys.exit("Error: RIP_HOST environment variable must be set (ssh alias of the rip host)")
 
     try:
+        if args.wait_for_rip:
+            print("--- Waiting for in-progress rip ---")
+            wait_for_rip(rip_host)
+
         rip_path = select_rip(rip_host, args.substring)
 
         release_type = rip_release_type(rip_path)
