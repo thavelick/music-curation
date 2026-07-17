@@ -46,8 +46,17 @@ LOG="$(ls -t "$HOME"/whipper/out/*/*/*.log 2>/dev/null | head -1)"
 # + rescue -- set -e aborts earlier on any failure or interrupt -- so
 # .rip-complete exists iff the rip truly finished, letting curate refuse to
 # process a partial rip.
+#
+# whipper creates the output dir root-owned (it runs --user 0 in the
+# container), so the sentinel is written as root via podman too -- a plain
+# touch by this non-root wrapper gets EACCES on that dir. A sentinel write
+# failure only costs the completeness signal, so keep it non-fatal (|| ...)
+# rather than let set -e abort the rip before the eject below.
 if [ -n "$LOG" ]; then
-  touch "$(dirname "$LOG")/.rip-complete"
+  REL_DIR="$(dirname "${LOG#"$HOME"/whipper/out/}")"
+  sudo podman run --rm --user 0 -v "$HOME/whipper/out:/output:Z" \
+    --entrypoint touch "$IMAGE" "/output/$REL_DIR/.rip-complete" \
+    || echo "  (warning: could not write .rip-complete sentinel)"
 fi
 
 # Speed summary: reconstruct how long the rip took vs. the disc's runtime from
