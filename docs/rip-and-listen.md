@@ -6,7 +6,6 @@ Personal working lists — discs to rip, and already-ripped albums queued to lis
 
 | Artist | Album | Notes |
 |--------|-------|-------|
-| Royal Crown Revue | Caught in the Act | |
 | Royal Crown Revue | Mugzy's Move | |
 | Big Bad Voodoo Daddy | (self-titled?) | title unconfirmed |
 | Fiona Apple | Tidal | have *When the Pawn…* already |
@@ -16,7 +15,6 @@ Personal working lists — discs to rip, and already-ripped albums queued to lis
 | Johnny Cash | 16 Biggest Hits | have *American IV* already |
 | Various Artists | Songs in the Key of Springfield | |
 | Barenaked Ladies | Disc One: All Their Greatest Hits (1991–2001) | |
-| Squirrel Nut Zippers | Hot | have *Bedlam Ballroom* already |
 
 ## Re-rip to FLAC — currently MP3 in the library
 
@@ -43,3 +41,5 @@ Personal working lists — discs to rip, and already-ripped albums queued to lis
 - [ ] The Presidents of the United States of America — The Presidents of the United States of America
 - [ ] Squirrel Nut Zippers — The Inevitable
 - [ ] Squirrel Nut Zippers — Perennial Favorites
+- [ ] Squirrel Nut Zippers — Hot
+- [ ] Royal Crown Revue — Caught in the Act
