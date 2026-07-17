@@ -6,7 +6,6 @@ Personal working lists — discs to rip, and already-ripped albums queued to lis
 
 | Artist | Album | Notes |
 |--------|-------|-------|
-| Fiona Apple | Tidal | have *When the Pawn…* already |
 | The Bobs | (4 albums) | titles TBD at rip time |
 | Moxy Früvous | Bargainville | |
 | Danny Elfman | So-Lo | |
@@ -41,3 +40,4 @@ Personal working lists — discs to rip, and already-ripped albums queued to lis
 - Royal Crown Revue — Mugzy's Move
 - Big Bad Voodoo Daddy — Big Bad Voodoo Daddy
 - Barenaked Ladies — Disc One: All Their Greatest Hits: 1991-2001
+- Fiona Apple — Tidal
