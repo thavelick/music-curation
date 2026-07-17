@@ -6,7 +6,7 @@ Personal working lists — discs to rip, and already-ripped albums queued to lis
 
 | Artist | Album | Notes |
 |--------|-------|-------|
-| The Bobs | (4 albums) | titles TBD at rip time |
+| The Bobs | (3 more albums) | titles TBD at rip time; *Shut Up and Sing!* done |
 | Moxy Früvous | Bargainville | |
 | Danny Elfman | So-Lo | |
 | Johnny Cash | 16 Biggest Hits | have *American IV* already |
@@ -26,7 +26,6 @@ Personal working lists — discs to rip, and already-ripped albums queued to lis
 - Spring Creek — Hold on Me
 - Alabama — Pass It On Down
 - Freddie Jackson — Here It Is
-- Barenaked Ladies — Barenaked Ladies Are Me
 - They Might Be Giants — Severe Tire Damage
 - mindGOflip — Bounce Bounce Sound
 - Art of Noise — Daft
@@ -41,3 +40,4 @@ Personal working lists — discs to rip, and already-ripped albums queued to lis
 - Big Bad Voodoo Daddy — Big Bad Voodoo Daddy
 - Barenaked Ladies — Disc One: All Their Greatest Hits: 1991-2001
 - Fiona Apple — Tidal
+- The Bobs — Shut Up and Sing!
