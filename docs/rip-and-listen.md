@@ -6,8 +6,6 @@ Personal working lists — discs to rip, and already-ripped albums queued to lis
 
 | Artist | Album | Notes |
 |--------|-------|-------|
-| Royal Crown Revue | Mugzy's Move | |
-| Big Bad Voodoo Daddy | (self-titled?) | title unconfirmed |
 | Fiona Apple | Tidal | have *When the Pawn…* already |
 | The Bobs | (4 albums) | titles TBD at rip time |
 | Moxy Früvous | Bargainville | |
@@ -24,22 +22,23 @@ Personal working lists — discs to rip, and already-ripped albums queued to lis
 
 ## To listen — already ripped (in `curated/`)
 
-- [ ] Pet Shop Boys — Nightlife
-- [ ] The Cure — Show
-- [ ] Collective Soul — Collective Soul (1995)
-- [ ] Spring Creek — Hold on Me
-- [ ] Alabama — Pass It On Down
-- [ ] Freddie Jackson — Here It Is
-- [ ] Barenaked Ladies — Barenaked Ladies Are Me
-- [ ] Bad Religion — Stranger Than Fiction
-- [x] Annie Lennox — Bare
-- [ ] They Might Be Giants — Severe Tire Damage
-- [ ] mindGOflip — Bounce Bounce Sound
-- [ ] Art of Noise — Daft
-- [ ] Art of Noise — The Best of the Art of Noise (pink cover)
-- [ ] Art of Noise — The FON Mixes
-- [ ] The Presidents of the United States of America — The Presidents of the United States of America
-- [ ] Squirrel Nut Zippers — The Inevitable
-- [ ] Squirrel Nut Zippers — Perennial Favorites
-- [ ] Squirrel Nut Zippers — Hot
-- [ ] Royal Crown Revue — Caught in the Act
+- Pet Shop Boys — Nightlife
+- The Cure — Show
+- Collective Soul — Collective Soul (1995)
+- Spring Creek — Hold on Me
+- Alabama — Pass It On Down
+- Freddie Jackson — Here It Is
+- Barenaked Ladies — Barenaked Ladies Are Me
+- Bad Religion — Stranger Than Fiction
+- They Might Be Giants — Severe Tire Damage
+- mindGOflip — Bounce Bounce Sound
+- Art of Noise — Daft
+- Art of Noise — The Best of the Art of Noise (pink cover)
+- Art of Noise — The FON Mixes
+- The Presidents of the United States of America — The Presidents of the United States of America
+- Squirrel Nut Zippers — The Inevitable
+- Squirrel Nut Zippers — Perennial Favorites
+- Squirrel Nut Zippers — Hot
+- Royal Crown Revue — Caught in the Act
+- Royal Crown Revue — Mugzy's Move
+- Big Bad Voodoo Daddy — Big Bad Voodoo Daddy
