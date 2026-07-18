@@ -6,7 +6,7 @@ Personal working lists — discs to rip, and already-ripped albums queued to lis
 
 | Artist | Album | Notes |
 |--------|-------|-------|
-| The Bobs | (2 more albums) | titles TBD at rip time; *Shut Up and Sing!* + self-titled done |
+| The Bobs | (1 more album) | title TBD at rip time; *Shut Up and Sing!*, self-titled, and *My, I'm Large* done |
 | Moxy Früvous | Bargainville | |
 | Danny Elfman | So-Lo | |
 | Johnny Cash | 16 Biggest Hits | have *American IV* already |
@@ -29,7 +29,6 @@ Personal working lists — discs to rip, and already-ripped albums queued to lis
 - They Might Be Giants — Severe Tire Damage
 - mindGOflip — Bounce Bounce Sound
 - Art of Noise — Daft
-- Art of Noise — The Best of the Art of Noise (pink cover)
 - Art of Noise — The FON Mixes
 - The Presidents of the United States of America — The Presidents of the United States of America
 - Squirrel Nut Zippers — The Inevitable
@@ -42,3 +41,4 @@ Personal working lists — discs to rip, and already-ripped albums queued to lis
 - Fiona Apple — Tidal
 - The Bobs — Shut Up and Sing!
 - The Bobs — The Bobs
+- The Bobs — My, I'm Large
