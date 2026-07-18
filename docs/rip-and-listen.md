@@ -6,7 +6,7 @@ Personal working lists — discs to rip, and already-ripped albums queued to lis
 
 | Artist | Album | Notes |
 |--------|-------|-------|
-| The Bobs | (3 more albums) | titles TBD at rip time; *Shut Up and Sing!* done |
+| The Bobs | (2 more albums) | titles TBD at rip time; *Shut Up and Sing!* + self-titled done |
 | Moxy Früvous | Bargainville | |
 | Danny Elfman | So-Lo | |
 | Johnny Cash | 16 Biggest Hits | have *American IV* already |
@@ -41,3 +41,4 @@ Personal working lists — discs to rip, and already-ripped albums queued to lis
 - Barenaked Ladies — Disc One: All Their Greatest Hits: 1991-2001
 - Fiona Apple — Tidal
 - The Bobs — Shut Up and Sing!
+- The Bobs — The Bobs
