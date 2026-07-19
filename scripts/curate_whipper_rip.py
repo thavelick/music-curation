@@ -74,7 +74,11 @@ INCOMING_DIR = MUSIC_DIR / "incoming"
 # out/<type>/, e.g. out/album/, out/live/, out/unknown/.
 REMOTE_RIP_DIR = "whipper/out"
 
-MULTI_DISC_RE = re.compile(r"\((disc|cd)\s*\d+\)", re.IGNORECASE)
+# Matches the disc marker whipper appends for one disc of a set. Covers both the
+# bare "(Disc 2)"/"(CD 2)" form and the "(Disc 1 of 3)" form whipper emits when
+# MusicBrainz knows the total medium count -- the " of N" is optional so both
+# abort to manual multi-disc handling (see README "Multi-Disc Albums").
+MULTI_DISC_RE = re.compile(r"\((disc|cd)\s*\d+(\s+of\s+\d+)?\)", re.IGNORECASE)
 VERIFIED_STATUSES = {"OK", "OK*"}
 
 # rip-cd.sh touches this in a rip's output folder only after a full rip +
@@ -769,8 +773,8 @@ def main():
         if MULTI_DISC_RE.search(rip_folder_name(rip_path)):
             raise Abort(
                 f"{rip_folder_name(rip_path)!r} looks like one disc of a multi-disc set "
-                "(disc N)/(CD N). Multi-disc curation is manual -- see README "
-                "'Multi-Disc Albums'."
+                "((disc N), (CD N), or (Disc N of M)). Multi-disc curation is manual -- "
+                "see README 'Multi-Disc Albums'."
             )
 
         # A placeholder rip has no artist/album to file under, so it stages in
