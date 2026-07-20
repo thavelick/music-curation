@@ -30,10 +30,16 @@ README's "Processing Workflow" checklist:
      preflight was clean, verify_rips confirms it, and a genre was set.
  13. Print a summary.
 
-A rip that looks like one disc of a multi-disc set, or whose destination
-album dir already exists, aborts immediately -- both are handled manually
-(see README "Multi-Disc Albums"). So does a rip in an unrecognized release-type
-dir (see CURATABLE_RELEASE_TYPES).
+One disc of a multi-disc set is curated in place: whipper names such a rip
+"<Artist> - <Album> (Disc N of M)", so the disc marker is stripped off the album
+title and the tracks land in $MUSIC_DIR/curated/<Artist>/<Album>/Disc N/, with
+the shared cover art moved up to the album folder and DISCNUMBER/DISCTOTAL
+tagged (see README "Multi-Disc Albums"). Run it once per disc; curating disc 2
+expects the album folder to already exist from disc 1. Pass --disc-total when
+MusicBrainz's medium count doesn't match the discs you actually have.
+
+A rip whose destination disc folder already exists aborts immediately, as does
+one in an unrecognized release-type dir (see CURATABLE_RELEASE_TYPES).
 
 A disc with no MusicBrainz match at all can't be named or looked up, so it's
 staged in $MUSIC_DIR/incoming/<discid>/ rather than the library, gets only the
@@ -44,6 +50,8 @@ Usage:
   scripts/curate_whipper_rip.py                # curate the newest rip
   scripts/curate_whipper_rip.py battle          # curate the rip matching "battle"
   scripts/curate_whipper_rip.py --wait-for-rip  # wait for the running rip, then curate it
+  scripts/curate_whipper_rip.py "disc 2"         # curate one disc of a multi-disc set
+  scripts/curate_whipper_rip.py --disc-total 2   # ...tagging DISCTOTAL=2 instead of MB's count
 
 Environment:
   RIP_HOST    required; SSH alias of the rip host (e.g. "bazzite")
@@ -74,11 +82,11 @@ INCOMING_DIR = MUSIC_DIR / "incoming"
 # out/<type>/, e.g. out/album/, out/live/, out/unknown/.
 REMOTE_RIP_DIR = "whipper/out"
 
-# Matches the disc marker whipper appends for one disc of a set. Covers both the
-# bare "(Disc 2)"/"(CD 2)" form and the "(Disc 1 of 3)" form whipper emits when
-# MusicBrainz knows the total medium count -- the " of N" is optional so both
-# abort to manual multi-disc handling (see README "Multi-Disc Albums").
-MULTI_DISC_RE = re.compile(r"\((disc|cd)\s*\d+(\s+of\s+\d+)?\)", re.IGNORECASE)
+# The disc marker whipper appends for one disc of a set. Covers both the bare
+# "(Disc 2)"/"(CD 2)" form and the "(Disc 1 of 3)" form whipper emits when
+# MusicBrainz knows the total medium count, so the " of N" group is optional.
+# Groups: 2 = this disc's number, 3 = the set's disc count (None if absent).
+DISC_MARKER_RE = re.compile(r"\s*\((disc|cd)\s*(\d+)(?:\s+of\s+(\d+))?\)", re.IGNORECASE)
 VERIFIED_STATUSES = {"OK", "OK*"}
 
 # rip-cd.sh touches this in a rip's output folder only after a full rip +
@@ -401,6 +409,23 @@ def split_artist_album(rip_path):
     return artist.strip(), album.strip()
 
 
+def split_disc_marker(album_name):
+    """Split "Album (Disc 1 of 3)" into ("Album", 1, 3).
+
+    Returns (album_title, disc_number, disc_total) with disc_number/disc_total
+    None when this isn't one disc of a set (disc_total alone is None for the
+    "(Disc 2)" form, where whipper had no medium count to print). The marker is
+    stripped so every disc of a set files under one album folder, with the
+    tracks in a "Disc N/" subfolder -- see README "Multi-Disc Albums".
+    """
+    m = DISC_MARKER_RE.search(album_name)
+    if not m:
+        return album_name, None, None
+    title = (album_name[: m.start()] + album_name[m.end():]).strip()
+    total = int(m.group(3)) if m.group(3) else None
+    return title, int(m.group(2)), total
+
+
 def pull_rip(rip_host, rip_path, album_dir):
     album_dir.mkdir(parents=True, exist_ok=True)
     remote = f"{rip_host}:{REMOTE_RIP_DIR}/{rip_path}/"
@@ -586,7 +611,7 @@ def fetch_mb_artist_credits(release_mbid):
     return credits
 
 
-def fix_tags(flacs, genre):
+def fix_tags(flacs, genre, disc_number=None, disc_total=None):
     track_total = len(flacs)
 
     multi_artist = {}
@@ -611,6 +636,15 @@ def fix_tags(flacs, genre):
         if genre:
             removes.append("--remove-tag=GENRE")
             adds.append(f"--set-tag=GENRE={genre}")
+        # Rewrite the disc tags rather than trusting whipper's: --disc-total can
+        # override a MusicBrainz medium count that doesn't match the physical
+        # set in hand (e.g. a bonus disc that varies between copies).
+        if disc_number is not None:
+            removes.append("--remove-tag=DISCNUMBER")
+            adds.append(f"--set-tag=DISCNUMBER={disc_number}")
+        if disc_total is not None:
+            removes.append("--remove-tag=DISCTOTAL")
+            adds.append(f"--set-tag=DISCTOTAL={disc_total}")
         fixed = multi_artist.get(i)
         if fixed and fixed != artist:
             removes.append("--remove-tag=ARTIST")
@@ -649,6 +683,29 @@ def fetch_lyrics(album_dir):
 
 
 # --- Cleanup ---------------------------------------------------------------
+
+
+def relocate_cover(disc_dir, album_dir):
+    """Move whipper's cover art up to the album root for a multi-disc set.
+
+    Jellyfin looks for the album cover beside the album folder, not inside each
+    "Disc N/" subfolder, and every disc of a set ships the same art -- so the
+    first disc's copy becomes the album cover and later discs' identical copies
+    are dropped rather than left lying around in the disc folders.
+    """
+    moved = []
+    for name in ("cover.jpg", "cover.png"):
+        src = disc_dir / name
+        if not src.exists():
+            continue
+        dst = album_dir / name
+        if dst.exists():
+            src.unlink()
+            moved.append(f"{name} (album already has one; dropped duplicate)")
+        else:
+            src.rename(dst)
+            moved.append(f"{name} -> {dst.parent.name}/{name}")
+    return moved
 
 
 def cleanup_sidecars(album_dir):
@@ -741,6 +798,15 @@ def main():
         help="block until an in-progress whipper rip (rip-cd.sh) on the rip host "
              "finishes before selecting and curating a rip",
     )
+    parser.add_argument(
+        "--disc-total",
+        type=int,
+        default=None,
+        metavar="N",
+        help="DISCTOTAL to tag for a multi-disc set, overriding the count in the "
+             "rip folder name (use when MusicBrainz's medium count doesn't match "
+             "the discs you actually have)",
+    )
     args = parser.parse_args()
 
     rip_host = os.environ.get("RIP_HOST")
@@ -770,39 +836,49 @@ def main():
                 f"{', '.join(sorted(KNOWN_RELEASE_TYPES))}."
             )
 
-        if MULTI_DISC_RE.search(rip_folder_name(rip_path)):
-            raise Abort(
-                f"{rip_folder_name(rip_path)!r} looks like one disc of a multi-disc set "
-                "((disc N), (CD N), or (Disc N of M)). Multi-disc curation is manual -- "
-                "see README 'Multi-Disc Albums'."
-            )
-
         # A placeholder rip has no artist/album to file under, so it stages in
-        # incoming/<discid>/ and skips every step that needs MusicBrainz.
+        # incoming/<discid>/ and skips every step that needs MusicBrainz. It also
+        # never carries a disc marker (it's named after the disc ID), so
+        # multi-disc handling only applies to a matched rip.
         placeholder = is_placeholder_rip(rip_path)
+        disc_number = disc_total = None
         if placeholder:
             artist_name, artist_dir = None, None
             album_name = rip_disc_id(rip_path)
             album_dir = INCOMING_DIR / album_name
         else:
-            artist_name, album_name = split_artist_album(rip_path)
+            artist_name, raw_album = split_artist_album(rip_path)
+            album_name, disc_number, disc_total = split_disc_marker(raw_album)
+            if args.disc_total is not None:
+                disc_total = args.disc_total
             artist_dir = CURATED_DIR / artist_name
             album_dir = artist_dir / album_name
 
-        if album_dir.exists():
+        # Where this disc's tracks land. For a single-disc rip that's the album
+        # folder itself; for one disc of a set it's "<Album>/Disc N/", leaving the
+        # album folder to hold the shared cover art (see README "Multi-Disc Albums").
+        disc_dir = album_dir if disc_number is None else album_dir / f"Disc {disc_number}"
+
+        # Guard on the *disc* folder, not the album: curating disc 2 of a set is
+        # expected to find the album folder already there from disc 1.
+        if disc_dir.exists():
             resume = (
                 "It's already staged; finish tagging it by hand"
                 if placeholder
                 else "Investigate and resume manually with the individual scripts "
                      "(fetch_nfo.py, verify_rips.py, etc.)"
             )
-            raise Abort(f"{album_dir} already exists. {resume} instead.")
+            raise Abort(f"{disc_dir} already exists. {resume} instead.")
 
         if placeholder:
             print(f"\n=== Curating (no metadata): {album_name} ===\n")
             print("  This disc has no MusicBrainz match, so whipper fell back to")
             print("  placeholder tags. Running the steps that don't need metadata")
             print(f"  and staging it in {INCOMING_DIR}/ for hand-tagging.\n")
+        elif disc_number is not None:
+            of_total = f" of {disc_total}" if disc_total else ""
+            print(f"\n=== Curating: {artist_name} / {album_name} "
+                  f"[disc {disc_number}{of_total}] ===\n")
         else:
             print(f"\n=== Curating: {artist_name} / {album_name} ===\n")
 
@@ -810,10 +886,13 @@ def main():
         clean, _tracks, rescued = preflight(rip_host, rip_path)
 
         print("\n--- Step 2: Pull rip ---")
-        pull_rip(rip_host, rip_path, album_dir)
+        pull_rip(rip_host, rip_path, disc_dir)
+        if disc_number is not None:
+            for note in relocate_cover(disc_dir, album_dir):
+                print(f"  Cover art: {note}")
 
         print("\n--- Step 3: Rename tracks ---")
-        flacs = rename_tracks(album_dir)
+        flacs = rename_tracks(disc_dir)
         if not flacs:
             raise Abort("No FLAC tracks found/renamed after pulling the rip.")
 
@@ -833,7 +912,7 @@ def main():
         # Track numbers come off the disc, not MusicBrainz, so TRACKNUMBER and
         # TRACKTOTAL get set either way; fix_tags skips DATE/GENRE when unset.
         print("\n--- Step 5: Tags ---")
-        fix_tags(flacs, genre)
+        fix_tags(flacs, genre, disc_number, disc_total)
 
         print("\n--- Step 6: ReplayGain ---")
         add_replaygain(flacs)
@@ -849,17 +928,17 @@ def main():
         if placeholder:
             print("  Skipped -- no artist/title to search on")
         else:
-            lyrics_proc = fetch_lyrics(album_dir)
+            lyrics_proc = fetch_lyrics(disc_dir)
 
         print("\n--- Step 9: Cleanup sidecars ---")
-        removed = cleanup_sidecars(album_dir)
+        removed = cleanup_sidecars(disc_dir)
         print(f"  Removed: {', '.join(removed) if removed else '(none found)'}")
 
         # AccurateRip/CTDB are keyed on the disc TOC, not MusicBrainz, so this is
         # worth running even with no metadata -- though an obscure disc MB has
         # never seen is unlikely to be in those databases either (NOT IN DB).
         print("\n--- Step 10: Verify rip (AccurateRip/CTDB) ---")
-        verify_status = run_verify_rips(album_dir)
+        verify_status = run_verify_rips(disc_dir)
         verified = verify_status in VERIFIED_STATUSES
 
         print("\n--- Step 11: Tag/image checks ---")
@@ -895,6 +974,9 @@ def main():
             print(f"  Staged in:        {album_dir}")
         else:
             print(f"  Album:            {artist_name} / {album_name}")
+        if disc_number is not None:
+            of_total = f" of {disc_total}" if disc_total else ""
+            print(f"  Disc:             {disc_number}{of_total}  ->  {disc_dir}")
         print(f"  Tracks:           {len(flacs)}")
         print(f"  AccurateRip:      preflight {'clean' if clean else 'NOT CLEAN'}; "
               f"verify_rips {verify_status or 'unknown'}")

@@ -98,7 +98,7 @@ It searches **every** release-type dir under `~/whipper/out/`, so it finds a `li
 
 **`--wait-for-rip`** lets you kick off curation while a disc is still ripping and hand off automatically: it blocks until the [`rip-cd.sh`](#accurate-ripping-with-whipper) wrapper on the rip host exits, then curates the newest rip. Because a wrapper that was interrupted (e.g. Ctrl-C'd partway) *also* just disappears, process-exit alone can't distinguish a finished rip from an aborted one — so `rip-cd.sh` touches a `.rip-complete` sentinel in the output folder only after a full rip **and** rescue pass (its `set -e` aborts earlier on any failure), and `--wait-for-rip` refuses to curate a rip that lacks the sentinel rather than pull a partial one. The flag watches only the `rip-cd.sh` wrapper (not a bare `whipper` call), must be passed while the rip is already running (it doesn't wait for a *future* rip to appear), and is a no-op — proceeding straight to curation — when nothing is running. The sentinel stays on the rip host; it's excluded from the library pull. Deploy the wrapper that writes it with the `scp` above.
 
-It only syncs to Jellyfin automatically when **all** of these hold: every track's AccurateRip verdict in the whipper log was a verified match (and no `RESCUED-TRACKS.txt`), [`verify_rips.py`](#verifying-rips-accuraterip) confirms `OK`/`OK*`, and a genre was found in MusicBrainz (the release group's top-voted genre, falling back to the artist's — the same source [`fetch_nfo.py`](#getting-nfo-metadata) uses, but looked up independently, so a `fetch_nfo.py` failure doesn't by itself block the sync). Otherwise it still curates the album but prints exactly which gate(s) failed and skips the sync. It aborts to manual curation for a rip folder that looks like one disc of a [multi-disc set](#multi-disc-albums), or if the destination album folder already exists (in which case, investigate and resume with the individual scripts). A disc with [no MusicBrainz match at all](#discs-musicbrainz-doesnt-know---unknown) is curated as far as it can go without metadata, then staged in `incoming/` for hand-tagging.
+It only syncs to Jellyfin automatically when **all** of these hold: every track's AccurateRip verdict in the whipper log was a verified match (and no `RESCUED-TRACKS.txt`), [`verify_rips.py`](#verifying-rips-accuraterip) confirms `OK`/`OK*`, and a genre was found in MusicBrainz (the release group's top-voted genre, falling back to the artist's — the same source [`fetch_nfo.py`](#getting-nfo-metadata) uses, but looked up independently, so a `fetch_nfo.py` failure doesn't by itself block the sync). Otherwise it still curates the album but prints exactly which gate(s) failed and skips the sync. One disc of a [multi-disc set](#multi-disc-albums) is curated in place — run it once per disc and each lands in `<Album>/Disc N/` (see below). It aborts if the destination disc folder already exists (in which case, investigate and resume with the individual scripts). A disc with [no MusicBrainz match at all](#discs-musicbrainz-doesnt-know---unknown) is curated as far as it can go without metadata, then staged in `incoming/` for hand-tagging.
 
 **Speed:** whipper is deliberately slow — a one-time subchannel scan plus careful per-track extraction — and it's interactive. That's the price of a verified rip.
 
@@ -282,6 +282,19 @@ curated/
 ```
 
 **Important:** Each track must have the `discnumber` metadata tag set (1, 2, etc.) to ensure proper organization in media players. Track numbering restarts at 01 for each disc.
+
+[`curate_whipper_rip.py`](scripts/curate_whipper_rip.py) builds this layout for you. whipper names each disc of a set `<Artist> - <Album> (Disc N of M)`, so the script strips the disc marker off the album title, files the tracks in `<Album>/Disc N/`, moves the shared cover art up to the album folder, and tags `DISCNUMBER`/`DISCTOTAL`. Run it once per disc — curating disc 2 expects the album folder to already exist from disc 1, and only aborts if that disc's own folder is already there:
+
+```bash
+scripts/curate_whipper_rip.py "disc 1"
+scripts/curate_whipper_rip.py "disc 2"
+```
+
+Pass `--disc-total N` when MusicBrainz's medium count doesn't match the discs you actually have — e.g. a set MusicBrainz lists as 3 discs where the third is a bonus disc that varies between copies (and is catalogued as its own release), so your copy is really a 2-disc set:
+
+```bash
+scripts/curate_whipper_rip.py "disc 1" --disc-total 2
+```
 
 ### Legacy Format Folders
 
