@@ -645,6 +645,8 @@ When replacing an existing album in the curated library with a higher quality ve
 
 2. **Process the new version** following the standard [Complete Album Processing Checklist](#complete-album-processing-checklist)
 
+   > **Note:** When the new version uses a different format (e.g. MP3 → FLAC), the sync leaves the old files on the Jellyfin server, since [`sync_to_jellyfin.py`](#syncing-to-jellyfin-server) doesn't pass `--delete` by default. The result is *both* copies showing up in Jellyfin. Prune the server afterward with `scripts/sync_to_jellyfin.py --delete --scan` (dry-run first).
+
 3. **Verify the upgrade:**
    - Check file quality is better than archived version
    - Verify metadata is complete
